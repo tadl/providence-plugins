@@ -2,6 +2,10 @@
 
 Providence application plugin that scopes collection hierarchy access based on user role and user ID mapping.
 
+Source is maintained in the `groupCollectionRootMap/` folder of the shared
+`providence-plugins` repository. Install this folder independently using the
+existing plugin name. See the repository root README for shared checks.
+
 ## What it does
 
 - Optionally gates checks by required role (for example, `cataloguer`).

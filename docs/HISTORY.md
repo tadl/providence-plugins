@@ -24,5 +24,7 @@ tracked directories, with no nested `.git` directories or Git submodules.
 
 This consolidation did not modify Providence, installed plugin copies, widget
 source, collection access behavior or production configuration. The original
-source repositories and remote repositories were retained; they were not
-deleted or archived on GitHub. Future source changes belong in this monorepo.
+source checkouts were retained as local recovery copies outside the active
+monorepo. This migration does not delete or archive GitHub repositories. Once
+the monorepo push is verified, the owner can retire the old GitHub repositories.
+Future source changes belong in this monorepo.

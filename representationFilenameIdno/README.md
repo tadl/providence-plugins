@@ -2,6 +2,10 @@
 
 Providence application plugin that derives `ca_object_representations.idno` from the uploaded media filename and fills a blank preferred label from the same filename.
 
+Source is maintained in the `representationFilenameIdno/` folder of the shared
+`providence-plugins` repository. Install this folder independently using the
+existing plugin name. See the repository root README for shared checks.
+
 ## What it does
 
 - Sets representation `idno` from `original_filename` on new uploads.

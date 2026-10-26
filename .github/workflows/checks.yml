@@ -1,0 +1,47 @@
+name: Plugin checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PROVIDENCE_REFERENCE_ROOT: ${{ github.workspace }}/.reference/providence
+    steps:
+      - name: Check out plugin source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out trusted Providence reference
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: collectiveaccess/providence
+          ref: cd3a7175a3f8301553ff0aa215a8b9f39d421870 # 2.0.10
+          path: .reference/providence
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /themes/default/views/bundles/hierarchy_location.php
+            /assets/jquery/jquery-3.7.1.js
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24'
+      - name: Inspect available PHP and check shell syntax
+        run: |
+          php --version
+          bash -n scripts/check.sh
+      - name: Prepare isolated browser tools
+        run: |
+          browser_tools=$(mktemp -d)
+          npm install --prefix "$browser_tools" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+          "$browser_tools/node_modules/.bin/playwright" install --with-deps chromium
+          echo "NODE_PATH=$browser_tools/node_modules" >> "$GITHUB_ENV"
+      - name: Lint and run standalone PHP and browser checks
+        run: bash scripts/check.sh --browser

@@ -67,8 +67,9 @@ It uses the same `collection_id` new-object route as the collection editor's
 `groupCollectionRootMap` editor/save collection checks, remain responsible for
 authorization. This plugin is not a replacement for collection access controls.
 
-Keep the plugin in its own source repository and preserve the installed custom
-plugin directory and local configuration during upgrades. Source compatibility
+Maintain this plugin in its folder in the shared `providence-plugins` repository.
+Preserve the installed custom plugin directory and local configuration during
+upgrades. Source compatibility
 is checked against Providence **2.0.10**. Integration depends on the bundle HTML
 hook, native Add row IDs and the existing collection creation route. Run the
 tests after upgrading and repeat a browser smoke test; persistence does not
@@ -79,7 +80,7 @@ need a compatibility review before enabling it.
 
 ## Offline checks
 
-From this repository:
+From this plugin's folder (`collectionSibling/` in the monorepo):
 
 ```sh
 php tests/plugin_test.php

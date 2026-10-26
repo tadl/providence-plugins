@@ -44,6 +44,10 @@ plugin's 39 standalone PHP assertions, and check Git whitespace. `--browser`
 also runs Chromium interaction checks. The other two plugins currently have no
 standalone behavior suites; PHP lint does not verify their live behavior.
 
+GitHub Actions runs these checks, including browser interactions, on pushes and
+pull requests against a pinned Providence 2.0.10 reference. The workflow only
+tests source and performs no deployment.
+
 The tests require a trusted Providence reference checkout. In the existing
 workspace layout, a sibling `../providence/` checkout is detected automatically.
 For a standalone clone, set the reference explicitly:
