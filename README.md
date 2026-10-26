@@ -4,6 +4,8 @@ Custom application plugins for CollectiveAccess Providence. Each plugin can be
 installed, enabled and updated independently. This repository contains plugin
 source; Providence itself and site-local configuration stay outside it.
 
+Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-plugins).
+
 | Plugin | Purpose |
 | --- | --- |
 | [collectionSibling](collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
