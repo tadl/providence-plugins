@@ -9,6 +9,11 @@ Source lives in `plugins/groupCollectionRootMap/` in
 folder as `app/plugins/groupCollectionRootMap/`, preserving its name and local
 configuration. Shared defaults disable both the plugin and native ACL mode.
 
+For the record permissions panel, start with
+[Reading the collection scope permissions](docs/COLLECTION_SCOPE_GROUPS.md).
+It explains the generated groups, “Everyone: no access” and the inheritance
+controls in plain language.
+
 ## Scope rules
 
 - `user_root_collection_map` maps backend user IDs to root collection IDs. Roots
