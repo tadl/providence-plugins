@@ -1,0 +1,13 @@
+# Server-local overrides for groupCollectionRootMap plugin.
+# Copy to plugin.local.conf on the server and edit values there.
+
+enable = 1
+required_role = cataloguer
+bypass_for_administrators = 1
+require_mapping_for_all_users = 1
+allow_root_parent_assignment = 0
+
+user_root_collection_map = {
+	12 = [101],
+	34 = [202, 203]
+}
