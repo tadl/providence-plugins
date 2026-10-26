@@ -20,7 +20,7 @@ function fixture() {
 		CREATE TABLE ca_user_groups (group_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, code TEXT UNIQUE, description TEXT, for_public_use INTEGER DEFAULT 0);
 		CREATE TABLE ca_groups_x_roles (group_id INTEGER, role_id INTEGER);
 		CREATE TABLE ca_users_x_groups (relation_id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, group_id INTEGER);
-		CREATE TABLE ca_acl (acl_id INTEGER PRIMARY KEY AUTOINCREMENT, table_num INTEGER, row_id INTEGER, user_id INTEGER, group_id INTEGER, access INTEGER, notes TEXT DEFAULT \'\', inherited_from_table_num INTEGER, inherited_from_row_id INTEGER);
+		CREATE TABLE ca_acl (acl_id INTEGER PRIMARY KEY AUTOINCREMENT, table_num INTEGER, row_id INTEGER, user_id INTEGER, group_id INTEGER, access INTEGER, notes TEXT DEFAULT \'\' CHECK (length(notes) <= '.NATIVE_ACL_NOTE_LIMIT.'), inherited_from_table_num INTEGER, inherited_from_row_id INTEGER);
 		INSERT INTO ca_collections (collection_id, parent_id) VALUES (101,NULL),(102,101),(103,102),(202,NULL),(203,202),(999,NULL);
 		INSERT INTO ca_collections (collection_id,parent_id,deleted) VALUES (404,NULL,1);
 		INSERT INTO ca_objects (object_id,parent_id) VALUES (1001,NULL),(1002,1001),(2001,NULL),(3001,NULL),(4001,NULL),(5001,NULL),(6001,NULL);
@@ -49,6 +49,7 @@ $backup = sys_get_temp_dir().'/collection-acl-test-'.bin2hex(random_bytes(8));
 mkdir($backup, 0700);
 try {
 	$scope = fixture();
+	expect(strlen(CollectionAclPolicy::OWNER) <= NATIVE_ACL_NOTE_LIMIT, 'Ownership marker fits the native ACL notes column');
 	$sync = new CollectionAclSynchronizer($scope);
 	$plan = $sync->inspect();
 	expect($plan['summary']['groups_to_create'] === 3, 'One unrestricted group and two root groups');

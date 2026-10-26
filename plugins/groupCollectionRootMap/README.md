@@ -128,8 +128,9 @@ Turning the plugin off alone does not undo the managed ACL migration.
 ## Ongoing synchronization and boundaries
 
 The plugin owns role-less private groups `gcrm_all` and `gcrm_r_<root ID>`, their
-memberships, and ACLs tagged `groupCollectionRootMap:acl:v1`. Unrestricted backend
-users join `gcrm_all`; restricted users join only their assigned root groups.
+memberships, and ACLs tagged `gcrm:v1` (within the native ten-character notes
+limit). Unrestricted backend users join `gcrm_all`; restricted users join only
+their assigned root groups.
 Grants permit read/edit/delete at the record layer; native application roles
 still decide which operations a user may perform. Do not edit managed grants or
 add application roles to these groups. Unused root groups can remain empty.
@@ -178,6 +179,7 @@ The synthetic SQLite suite exercises projection, migration/idempotence,
 conflicts, private backups, concurrency rejection, creation, relationship
 removal, cache invalidation and legacy opt-out. It executes Providence's actual
 `ca_acl::accessForRow` and `BaseFindEngine::filterHitsByACL` methods without
-bootstrapping an installation or reading its credentials. This is not a live
+bootstrapping an installation or reading its credentials, and enforces the notes
+length from the native SQL schema. This is not a live
 MySQL/HTTP integration test. Recheck hooks, ACL behavior and the staging cases
 above after Providence upgrades. Production activation is a separate step.

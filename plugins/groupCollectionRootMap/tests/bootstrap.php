@@ -169,6 +169,11 @@ class SyntheticRequest {
 // Execute only these two methods from the trusted reference, without loading
 // its bootstrap, database credentials or any other installation configuration.
 $reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__, 4).'/providence';
+$schema = file_get_contents($reference.'/install/inc/schema_mysql.sql');
+if (!preg_match('/create table ca_acl\s*\([^;]*?\bnotes\s+char\((\d+)\)/i', $schema, $note_match)) {
+	throw new RuntimeException('Trusted Providence ACL notes column not found.');
+}
+define('NATIVE_ACL_NOTE_LIMIT', (int)$note_match[1]);
 function nativeMethod($path, $method) {
 	$source = file_get_contents($path);
 	if (!$source || !preg_match('/\tpublic (?:static )?function '.preg_quote($method, '/').'\(.*?(?=\n\t# -)/s', $source, $matches)) {

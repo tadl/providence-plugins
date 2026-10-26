@@ -1,7 +1,8 @@
 <?php
 /** Native ACL projection for collections/objects; shared authorities are absent. */
 class CollectionAclPolicy {
-	const OWNER = 'groupCollectionRootMap:acl:v1';
+	// Native ca_acl.notes is CHAR(10), despite the model's larger text bound.
+	const OWNER = 'gcrm:v1';
 	const ALL_GROUP = 'gcrm_all';
 	const TABLES = ['ca_collections', 'ca_objects'];
 
