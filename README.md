@@ -8,9 +8,9 @@ Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-
 
 | Plugin | Purpose |
 | --- | --- |
-| [collectionSibling](collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
-| [groupCollectionRootMap](groupCollectionRootMap/README.md) | Scope collection/object editor and hierarchy access to assigned collection roots |
-| [representationFilenameIdno](representationFilenameIdno/README.md) | Derive representation identifiers and blank preferred labels from uploaded filenames |
+| [collectionSibling](plugins/collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
+| [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collection/object editor and hierarchy access to assigned collection roots |
+| [representationFilenameIdno](plugins/representationFilenameIdno/README.md) | Derive representation identifiers and blank preferred labels from uploaded filenames |
 
 The collection access plugin does not filter all search/browse results. Read its
 documented boundaries before relying on it. Consolidation into this repository
@@ -20,7 +20,7 @@ does not change any plugin's access policy or runtime behavior.
 
 Use the installation instructions in that plugin's README. Copy only the chosen
 plugin folder into Providence's `app/plugins/` directory with its existing name:
-for example, `collectionSibling/` becomes `app/plugins/collectionSibling/`.
+for example, `plugins/collectionSibling/` becomes `app/plugins/collectionSibling/`.
 The repository root, scripts and documentation are not an application plugin.
 
 All three shared `conf/plugin.conf` files default to disabled. Enable plugins
@@ -76,4 +76,4 @@ source revisions and commands to inspect their earlier paths. Continue plugin
 development here. The `providence-widgets` repository remains separate.
 
 Retain each plugin's existing license and attribution notices. The sibling
-plugin includes its GPL license in [collectionSibling/LICENSE](collectionSibling/LICENSE).
+plugin includes its GPL license in [plugins/collectionSibling/LICENSE](plugins/collectionSibling/LICENSE).

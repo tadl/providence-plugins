@@ -9,7 +9,7 @@ const {chromium} = require('playwright');
 const fixture = spawnSync(process.env.PHP_BINARY || 'php', [path.join(__dirname, 'plugin_test.php'), '--fixtures'], {encoding: 'utf8'});
 assert.equal(fixture.status, 0, fixture.stderr || fixture.stdout);
 const fixtures = JSON.parse(fixture.stdout);
-const reference = process.env.PROVIDENCE_REFERENCE_ROOT || path.resolve(__dirname, '../../../providence');
+const reference = process.env.PROVIDENCE_REFERENCE_ROOT || path.resolve(__dirname, '../../../../providence');
 const jquery = fs.readFileSync(path.join(reference, 'assets/jquery/jquery-3.7.1.js'));
 const prefix = 'P17ObjectEditorForm';
 const row = '#' + prefix + 'HierarchyBrowseAdd';

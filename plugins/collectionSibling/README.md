@@ -80,7 +80,7 @@ need a compatibility review before enabling it.
 
 ## Offline checks
 
-From this plugin's folder (`collectionSibling/` in the monorepo):
+From this plugin's folder (`plugins/collectionSibling/` in the monorepo):
 
 ```sh
 php tests/plugin_test.php
@@ -90,7 +90,7 @@ node tests/browser_test.js
 git diff --check
 ```
 
-The PHP suite reads the trusted sibling `../../providence` reference checkout's
+The PHP suite reads the trusted sibling `../../../providence` reference checkout's
 actual Add template and navigation handler, with synthetic framework boundaries.
 Set `PROVIDENCE_REFERENCE_ROOT` to use a different trusted reference checkout.
 It never bootstraps the application or reads installation connection settings.

@@ -16,9 +16,9 @@ while IFS= read -r -d '' source_file; do
     esac
 done < <(git ls-files -z -- '*.php' '*.js')
 
-php collectionSibling/tests/plugin_test.php
+php plugins/collectionSibling/tests/plugin_test.php
 if [[ "${1:-}" == "--browser" ]]; then
-    node collectionSibling/tests/browser_test.js
+    node plugins/collectionSibling/tests/browser_test.js
 fi
 git diff --check
 git diff --cached --check

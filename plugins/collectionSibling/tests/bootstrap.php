@@ -86,7 +86,7 @@ class SyntheticHierarchyView {
 }
 
 function nativeHierarchyFixture($request, $parent_id=0, $show_add=true, $prefix='P17ObjectEditorForm') {
-	$reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__, 3).'/providence';
+	$reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__, 4).'/providence';
 	$source = file_get_contents($reference.'/themes/default/views/bundles/hierarchy_location.php');
 	$marker = strpos($source, '<div id="<?= $id_prefix; ?>HierarchyBrowserTabs-add"');
 	$start = $marker === false ? false : strrpos(substr($source, 0, $marker), "\tif (\$show_add) {");

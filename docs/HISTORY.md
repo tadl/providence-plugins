@@ -5,9 +5,9 @@ subtree imports without squashing or rewriting the original commits.
 
 | Plugin folder | Previous source | Imported revision |
 | --- | --- | --- |
-| `collectionSibling/` | Local source repository, not previously pushed | `8b91b8b074e0c56847716f22e5e2668a35a13945` |
-| `groupCollectionRootMap/` | [tadl/groupCollectionRootMap](https://github.com/tadl/groupCollectionRootMap) | `6289e455ac955bad51964aac2f80773a8f0bc625` |
-| `representationFilenameIdno/` | [tadl/representationFilenameIdno](https://github.com/tadl/representationFilenameIdno) | `52c53b5f895b36e9278b4549c2b6eb68ff0efdd0` |
+| `plugins/collectionSibling/` | Local source repository, not previously pushed | `8b91b8b074e0c56847716f22e5e2668a35a13945` |
+| `plugins/groupCollectionRootMap/` | [tadl/groupCollectionRootMap](https://github.com/tadl/groupCollectionRootMap) | `6289e455ac955bad51964aac2f80773a8f0bc625` |
+| `plugins/representationFilenameIdno/` | [tadl/representationFilenameIdno](https://github.com/tadl/representationFilenameIdno) | `52c53b5f895b36e9278b4549c2b6eb68ff0efdd0` |
 
 The previous source revisions remain ancestors of `main`. Before each import,
 files lived at the root of their individual repository, so earlier commits use
@@ -19,7 +19,9 @@ git show 6289e455ac955bad51964aac2f80773a8f0bc625:groupCollectionRootMapPlugin.p
 git log --all --graph --oneline
 ```
 
-Use the plugin folder prefix for new commits. The plugin folders are ordinary
+The plugin folders were subsequently moved under `plugins/` in commit
+`571878b`; runtime installation names did not change. Use the current
+`plugins/<plugin-name>/` prefix for new commits. The plugin folders are ordinary
 tracked directories, with no nested `.git` directories or Git submodules.
 
 This consolidation did not modify Providence, installed plugin copies, widget
