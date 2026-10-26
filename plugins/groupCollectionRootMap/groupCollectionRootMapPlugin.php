@@ -17,11 +17,28 @@ require_once(__CA_APP_DIR__ . '/plugins/groupCollectionRootMap/lib/CollectionAcc
 class groupCollectionRootMapPlugin extends BaseApplicationPlugin {
 	/** @var CollectionAccessScope */
 	private $scope;
+	private $acl_runtime_registered = false;
 
 	public function __construct($plugin_path) {
-		$this->description = _t('Maps users to allowed collection roots and validates collection parent assignment on save.');
+		$this->description = _t('Maps users to collection roots, with optional native ACL segmentation for collections and objects.');
 		$this->scope = new CollectionAccessScope($plugin_path);
 		parent::__construct();
+		$this->registerAclRuntime();
+	}
+
+	private function registerAclRuntime() : void {
+		if (!$this->acl_runtime_registered && $this->scope->usesNativeACL() && class_exists('AppController', false) && AppController::instanceExists()) {
+			require_once __DIR__.'/lib/CollectionAclRuntime.php';
+			AppController::getInstance()->registerPlugin(new CollectionAclRuntime($this->scope));
+			$this->acl_runtime_registered = true;
+		}
+	}
+
+	// index.php invokes this hook after creating AppController, even when models
+	// initialized the application plugins earlier during bootstrap.
+	public function hookAddDomainSecurityPolicy(&$params) {
+		$this->registerAclRuntime();
+		return is_array($params) ? $params : true;
 	}
 
 	public function checkStatus() {
@@ -34,11 +51,13 @@ class groupCollectionRootMapPlugin extends BaseApplicationPlugin {
 	}
 
 	public function hookBeforeBundleInsert(&$params) {
+		$this->prepareNativeAclRecord($params);
 		$this->validateCollectionParent($params, true);
 		return $params;
 	}
 
 	public function hookBeforeBundleUpdate(&$params) {
+		$this->prepareNativeAclRecord($params);
 		$this->validateCollectionParent($params, false);
 		return $params;
 	}
@@ -52,6 +71,78 @@ class groupCollectionRootMapPlugin extends BaseApplicationPlugin {
 	public function hookBeforeSaveItem(&$params) {
 		$this->enforceSaveScope($params);
 		return $params;
+	}
+
+	public function hookAfterBundleInsert(&$params) {
+		$this->initializeNativeAclRecord($params);
+		return $params;
+	}
+
+	public function hookAfterBundleUpdate(&$params) {
+		$this->markNativeAclDirty($params);
+		return $params;
+	}
+
+	public function hookDeleteItem(&$params) {
+		$this->markNativeAclDirty($params);
+		return $params;
+	}
+
+	public function hookCLICaUtilsGetCommands(&$commands) {
+		$commands['groupCollectionRootMap']['sync_collection_scope_acl'] = [
+			'Command' => 'sync-collection-scope-acl',
+			'Options' => ['dry-run' => _t('Preview changes without writing (the default).'),
+				'apply' => _t('Apply the reviewed native ACL projection.'),
+				'backup-dir|b=s' => _t('Private existing directory outside the webroot for the mandatory ACL backup.'),
+				'config' => _t('Print required Providence settings without modifying configuration.')],
+			'Help' => _t('Synchronize collection/object ACLs from assigned roots. Shared authorities remain global. Defaults to dry run.'),
+			'ShortHelp' => _t('Preview or synchronize native collection scope ACLs.')
+		];
+		return $commands;
+	}
+
+	public function hookCLICaUtilsGetToolWithSettings(&$params) {
+		if (($params[0] ?? null) !== 'groupCollectionRootMap') { return $params; }
+		require_once __DIR__.'/lib/CollectionAclTool.php';
+		$params['tool'] = new CollectionAclTool($this->scope);
+		return $params;
+	}
+
+	private function prepareNativeAclRecord(array $params) : void {
+		if (!$this->scope->usesNativeACL()) { return; }
+		$table = $params['table_name'] ?? '';
+		if (!in_array($table, ['ca_objects', 'ca_collections'], true)) { return; }
+		$subject = $params['instance'];
+		// The projection follows native hierarchy membership itself. Native ACL
+		// inheritance must not introduce additional, competing permission rows.
+		$subject->set('acl_inherit_from_parent', 0);
+		if ($table === 'ca_objects') { $subject->set('acl_inherit_from_ca_collections', 0); }
+	}
+
+	private function markNativeAclDirty(array $params) : void {
+		if (!$this->scope->usesNativeACL()) { return; }
+		if (in_array($params['table_name'] ?? '', ['ca_objects', 'ca_collections', 'ca_objects_x_collections'], true)) {
+			require_once __DIR__.'/lib/CollectionAclSynchronizer.php';
+			CollectionAclSynchronizer::$dirty = true;
+		}
+	}
+
+	private function initializeNativeAclRecord(array $params) : void {
+		$this->markNativeAclDirty($params);
+		if (!$this->scope->usesNativeACL() || !in_array($table = $params['table_name'] ?? '', ['ca_objects', 'ca_collections'], true)) { return; }
+		$subject = $params['instance'];
+		$request = (class_exists('AppController', false) && AppController::instanceExists()) ? $this->getRequest() : null;
+		$user = $request->user ?? null;
+		$creator_id = $user ? (int)$user->getPrimaryKey() : (int)($GLOBALS['AUTH_CURRENT_USER_ID'] ?? 0);
+		// The standard object editor attaches its collection in postSave(), after
+		// the insert hook. Seed only validated pending membership for that form;
+		// postDispatch replaces this with the actual persisted membership.
+		$pending = ($table === 'ca_objects' && $request) ? (int)$request->getParameter('collection_id', pInteger) : 0;
+		if ($pending && !$this->scope->canAccessCollection($user, $pending)) { $pending = 0; }
+		$transaction = $subject->getTransaction();
+		$db = $transaction ? $transaction->getDb() : $subject->getDb();
+		$sync = new CollectionAclSynchronizer($this->scope, $db);
+		$sync->initializeRecord($table, (int)$subject->getPrimaryKey(), $creator_id, $pending);
 	}
 
 	public function hookBundleFormHTML(&$params) {

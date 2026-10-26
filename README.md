@@ -9,12 +9,13 @@ Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-
 | Plugin | Purpose |
 | --- | --- |
 | [collectionSibling](plugins/collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
-| [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collection/object editor and hierarchy access to assigned collection roots |
+| [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collections/objects to assigned roots, with optional native ACL search/browse segmentation |
 | [representationFilenameIdno](plugins/representationFilenameIdno/README.md) | Derive representation identifiers and blank preferred labels from uploaded filenames |
 
-The collection access plugin does not filter all search/browse results. Read its
-documented boundaries before relying on it. Consolidation into this repository
-does not change any plugin's access policy or runtime behavior.
+The collection access plugin's optional native ACL mode filters collections and
+objects while keeping authorities global. It requires a separately reviewed
+permissions migration. Legacy mode covers editors/hierarchies only. Read its
+rollout instructions and boundaries before activation.
 
 ## Install or update a plugin
 
@@ -42,9 +43,9 @@ bash scripts/check.sh --browser
 ```
 
 Both commands lint all tracked PHP and JavaScript files, run the sibling
-plugin's 39 standalone PHP assertions, and check Git whitespace. `--browser`
-also runs Chromium interaction checks. The other two plugins currently have no
-standalone behavior suites; PHP lint does not verify their live behavior.
+and collection ACL standalone PHP suites, and check Git whitespace. `--browser`
+also runs Chromium interaction checks. The filename plugin currently has no
+standalone behavior suite; PHP lint does not verify its live behavior.
 
 GitHub Actions runs these checks, including browser interactions, on pushes and
 pull requests against a pinned Providence 2.0.10 reference. The workflow only
@@ -60,7 +61,9 @@ PROVIDENCE_REFERENCE_ROOT=/path/to/trusted/providence bash scripts/check.sh
 
 The sibling suite was developed against Providence 2.0.10. It reads the actual
 hierarchy Add template and navigation handler without bootstrapping Providence
-or reading installation connection settings. PHP and Node.js are required.
+or reading installation connection settings. The collection ACL suite also
+executes two native ACL methods against synthetic in-memory SQLite data. PHP
+with PDO SQLite and Node.js are required.
 Browser checks additionally require Playwright and its matching Chromium;
 `NODE_PATH` can point to an external directory containing the Playwright package.
 

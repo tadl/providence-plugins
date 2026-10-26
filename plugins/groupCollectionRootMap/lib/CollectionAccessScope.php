@@ -31,6 +31,12 @@ class CollectionAccessScope {
 		return (bool)$this->getConfig('enable');
 	}
 
+	public function usesNativeACL() : bool {
+		return $this->isEnabled() && (bool)$this->getConfig('native_acl_segmentation');
+	}
+
+	public static function clearScopeCache() : void { self::$scope_cache = []; }
+
 	public function bypassForAdministrators() : bool {
 		return (bool)$this->getConfig('bypass_for_administrators');
 	}
@@ -137,6 +143,17 @@ class CollectionAccessScope {
 
 		$collection_ids = $t_object->getRelatedItems('ca_collections', $options);
 		if (!is_array($collection_ids)) { return []; }
+		if ($this->usesNativeACL()) {
+			// Object children belong to their ancestors' collection trees too.
+			$seen = [(int)$t_object->getPrimaryKey() => true];
+			while ($parent_id = (int)$t_object->get('parent_id')) {
+				if (isset($seen[$parent_id])) { throw new RuntimeException('Cycle in the object hierarchy.'); }
+				$seen[$parent_id] = true;
+				$t_object = $this->normalizeObjectInstance($parent_id);
+				if (!$t_object || $t_object->get('deleted')) { break; }
+				$collection_ids = array_merge($collection_ids, $t_object->getRelatedItems('ca_collections', $options) ?: []);
+			}
+		}
 
 		$collection_ids = array_values(array_unique(array_filter(array_map('intval', $collection_ids), function($id) {
 			return ($id > 0);

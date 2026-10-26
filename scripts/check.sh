@@ -17,6 +17,7 @@ while IFS= read -r -d '' source_file; do
 done < <(git ls-files -z -- '*.php' '*.js')
 
 php plugins/collectionSibling/tests/plugin_test.php
+php plugins/groupCollectionRootMap/tests/acl_test.php
 if [[ "${1:-}" == "--browser" ]]; then
     node plugins/collectionSibling/tests/browser_test.js
 fi

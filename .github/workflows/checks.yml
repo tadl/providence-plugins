@@ -30,12 +30,15 @@ jobs:
           sparse-checkout: |
             /themes/default/views/bundles/hierarchy_location.php
             /assets/jquery/jquery-3.7.1.js
+            /app/models/ca_acl.php
+            /app/lib/BaseFindEngine.php
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: '24'
       - name: Inspect available PHP and check shell syntax
         run: |
           php --version
+          php -r 'exit(extension_loaded("pdo_sqlite") ? 0 : 1);'
           bash -n scripts/check.sh
       - name: Prepare isolated browser tools
         run: |
