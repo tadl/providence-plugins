@@ -78,12 +78,21 @@ and derivatives.
    A supplemental bag alone is intentionally insufficient. A later independent
    full deposit needs only its own parts.
 3. Keep these source archives immutable. Use a private recovery directory on a
-   host with Python 3.9+ and space for the reconstructed originals.
-4. Validate and reconstruct using this plugin's standalone script:
+   host with Python 3.9+ and space for the reconstructed originals. On the server,
+   run recovery as `www-data` via sudo, with read access to the retrieved bags
+   and write access to the recovery parent directory. On a separate recovery
+   host, substitute its designated recovery account if different.
+4. From a trusted copy of this plugin's directory (containing `worker/`),
+   validate and reconstruct using its standalone script. These filenames are
+   illustrative: list every actual archive part identified by the recovery
+   roadmap.
 
    ```sh
-   python3 worker/preservation.py verify /private/retrieved/*.tar
-   python3 worker/preservation.py recover --deposit=DEPOSIT_ID --output=/private/recovered /private/retrieved/*.tar
+   sudo -u www-data -- python3 worker/preservation.py verify \
+     /private/retrieved/full-part-1.tar /private/retrieved/supplement-part-1.tar
+   sudo -u www-data -- python3 worker/preservation.py recover \
+     --deposit=DEPOSIT_ID --output=/private/recovered \
+     /private/retrieved/full-part-1.tar /private/retrieved/supplement-part-1.tar
    ```
 
 The output directory must not already exist. The command rejects traversal,

@@ -1,19 +1,25 @@
 # Preservation maintenance report
 
-Run this from the installed Providence root as the normal CLI service account:
+Run this from the installed Providence root, using sudo to run as the web/queue
+account `www-data`:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-report --user-id=7
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
 The ID is illustrative: supply an active backend administrator who has
-`can_preserve_collections`. The command reports **all non-deleted collections**,
+`can_preserve_collections`. This is the Providence backend user, separate from
+the Unix account `www-data`; substitute the service account if your server uses
+a different one. The command reports **all non-deleted collections**,
 including non-public collections and nested children, for the configured
 preservation destination. Native ACL checks must remain enabled. Do not pass
 `--disable-item-level-access-control` or run it through `process-task-queue`.
 
-The command needs the plugin enabled and its private ledger initialized. It is
-read-only and takes **no `--apply` flag**. It opens SQLite in read-only/query-only
+The command needs the plugin enabled and its private ledger initialized. Follow
+the [installation/cache steps](../README.md#application-cache-after-installation-or-updates)
+if the command or new role actions are missing after installation or an update.
+Routine reports do not require cache clearing. The report is read-only and takes
+**no `--apply` flag**. It opens SQLite in read-only/query-only
 mode and does not queue scans, create group IDs, build bags, write snapshots,
 transfer files, change confirmations, or access SFTP credentials. Current
 metadata travels to the comparison subprocess through stdin, never a temporary
@@ -85,14 +91,14 @@ existing live preservation pilot still need separate validation.
 For machine-readable JSON, suppress the native caUtils heading:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-report --user-id=7 --format=json --quiet
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --format=json --quiet
 ```
 
 For a quick history inventory without hashing originals or exporting current
 record metadata:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-report --user-id=7 --history-only
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --history-only
 ```
 
 History-only mode never labels content `current` or `out_of_date`. Its recorded
@@ -107,7 +113,7 @@ return nonzero for any collection requiring action, including never-deposited,
 outdated, unconfirmed, local-only, review-needed or unchecked collections:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-report --user-id=7 --fail-on-attention
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --fail-on-attention
 ```
 
 No recurring execution, email or notification is installed automatically. This

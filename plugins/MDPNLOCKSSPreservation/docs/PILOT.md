@@ -6,11 +6,16 @@ production exports, record edits, credential retrieval or transfers.
 
 ## Local mode on an isolated catalogue
 
-- Verify PHP/Python versions and extensions for the CLI account and web runtime.
+- Run server CLI checks as the web/queue account using `sudo -u www-data --`;
+  substitute the actual service account if different. Verify PHP/Python versions
+  and extensions for that account and the web runtime.
 - Confirm the private state directory is outside the web root/source checkout,
   mode 0700, on local storage, with appropriate free space and a private backup.
-- Initialize the ledger explicitly, enable only this plugin and grant the two
-  role actions deliberately. Keep transport local and use synthetic test data.
+- Enable only this plugin, perform the documented
+  [application cache clear](../README.md#application-cache-after-installation-or-updates)
+  in a maintenance window, initialize the ledger explicitly and grant the two
+  role actions deliberately. Check that users can sign back in and that the new
+  actions appear. Keep transport local and use synthetic test data.
 - Confirm the collection inspector link and keyboard-accessible form work.
 - With an authorized archivist, package a collection containing child
   collections, object components, duplicate `idno` values, shared objects and
@@ -27,7 +32,8 @@ production exports, record edits, credential retrieval or transfers.
   remove a member; create supplements. Inspect the complete change inventory.
 - Run a scan on unchanged content and verify no changes; request a new full
   deposit and verify its recovery chain is independent of earlier deposits.
-- Run `mdpn-preservation-report --user-id=ADMIN_ID` and check all non-deleted
+- Run `sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=ADMIN_ID`
+  from the installed Providence root and check all non-deleted
   collections, parent coverage, new/unpreserved children, stale confirmed
   preservation, uploaded-but-unconfirmed updates, failures and history-only
   results. Verify no preservation files/ledger/jobs change and review both text

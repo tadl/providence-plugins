@@ -26,7 +26,8 @@ native access settings or starts a service.
 - A local filesystem supporting SQLite locking and `flock`. Do not put the
   preservation ledger on NFS or share it across multiple application servers.
 - A private directory outside both the web root and the source repository,
-  owned by the common web/CLI queue account with permissions `0700`.
+  owned by the common web/CLI queue account (`www-data` in the server examples)
+  with permissions `0700`.
 - Sufficient space for retained archives and new staging. Budget up to twice
   the original file set plus repeated metadata for each active build. This
   initial worker stages originals even when testing an incremental comparison.
@@ -76,6 +77,13 @@ This plugin complements normal database/media/application backups.
 
 ## Install for local testing
 
+Run installed-server CLI commands from the Providence root using
+`sudo -u www-data --` as shown below. This runs each command as the web/queue
+account, so cache files, ledger files and archives have consistent ownership.
+If an installation uses another service account, substitute it consistently.
+The `--user-id` option selects a Providence backend user for authorization; it
+is separate from the Unix account selected by sudo.
+
 1. Copy only this plugin directory to
    `app/plugins/MDPNLOCKSSPreservation/`, preserving its exact name.
    Deny direct HTTP access to that filesystem path. The supplied `.htaccess`
@@ -84,27 +92,35 @@ This plugin complements normal database/media/application backups.
    routes and needs no direct access to plugin files.
 2. Create the private state directory with the ownership and permissions above.
 3. Copy `conf/plugin.local.conf.example` to `conf/plugin.local.conf` and review
-   every value. That real local file is ignored by Git and must be preserved
-   during updates. Keep `transport = local` for the first pilot.
+   every value, including `enable = 1`. That real local file is ignored by Git
+   and must be preserved during updates. Keep `transport = local` for the first
+   pilot.
 4. For MDPN, use `bagit_profile = mdpn`, `organization_code = TADL` and the exact
    `source_organization = Traverse Area District Library`. Set the real contact
    defaults locally. The synthetic example uses the generic profile instead.
-5. Run the initialization as the web/queue service account from the installed
-   Providence root:
+5. Clear Providence's application cache after copying and enabling the plugin,
+   before granting roles or starting preservation jobs. Follow the
+   [cache maintenance guidance](#application-cache-after-installation-or-updates)
+   below and run from the installed Providence root:
 
    ```sh
-   php support/bin/caUtils mdpn-preservation-init --apply
+   sudo -u www-data -- php support/bin/caUtils clear-caches --cache=app
    ```
 
-6. Grant `can_preserve_collections` to the intended backend role. Grant
-   `can_confirm_preservation` as well to people who will verify node ingestion.
-   Refresh Providence's role/action caches during the planned installation if
-   the new actions do not appear; the plugin does not purge caches itself.
-7. Configure or use the installation's existing CLI task-queue runner. For an
-   explicit preservation-only pilot invocation:
+6. Initialize the private ledger:
 
    ```sh
-   php support/bin/caUtils process-task-queue --tasks=MDPNLOCKSSPreservation --skip-recurring-tasks
+   sudo -u www-data -- php support/bin/caUtils mdpn-preservation-init --apply
+   ```
+
+7. Grant `can_preserve_collections` to the intended backend role. Grant
+   `can_confirm_preservation` as well to people who will verify node ingestion.
+   Reload the role editor after clearing the cache; sign back in if needed.
+8. Configure or use the installation's existing CLI task-queue runner under
+   `www-data`. For an explicit preservation-only pilot invocation:
+
+   ```sh
+   sudo -u www-data -- php support/bin/caUtils process-task-queue --tasks=MDPNLOCKSSPreservation --skip-recurring-tasks
    ```
 
 Initialization creates a SQLite ledger and a permanent random installation
@@ -115,6 +131,41 @@ separate integration review.
 
 Do not start a copied development checkout against production connection
 settings. Source tests below never bootstrap Providence or read `setup.php`.
+
+## Application cache after installation or updates
+
+Providence caches plugin role-action definitions and processed configuration.
+Clear the application cache once after installing/enabling this plugin and
+after updates that add or change role actions or configuration. Repeat this
+step when troubleshooting missing preservation actions, a missing inspector
+link or stale settings after checking the installed files and local `enable`
+value:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils clear-caches --cache=app
+```
+
+Run from the installed Providence root during a planned maintenance window.
+Application cache clearing includes user sessions and temporary application/task
+queue files. Let active uploads, imports and queue work finish, pause the queue
+runner for this step, and expect users to need to sign in again. Check the
+command's output and exit status; a cache directory that is not writable by
+`www-data` needs its ownership/permissions corrected before retrying.
+
+`--cache=app` selects the application caches; omitting it defaults to `all`,
+which also clears the temporary user-media upload area. Use the native command
+instead of deleting cache directories by hand. The private preservation state
+directory, ledger, retained bags and credentials must stay outside these cache
+locations.
+
+After clearing, reload the role editor and collection inspector, then resume
+the queue runner. Routine reports, scans, deposits and confirmations need no
+cache clear. The plugin never purges Providence caches automatically.
+
+This command clears Providence's application caches, not PHP OPcache. If a PHP
+code update remains stale because of the server's OPcache settings, follow the
+installation's normal PHP-FPM/Apache reload procedure; a CLI `opcache_reset()`
+does not reset the web runtime's OPcache.
 
 ## Archivist workflow
 
@@ -273,7 +324,7 @@ validation against an isolated fresh installation during the pilot.
 For a read-only report across all collections, including outdated preservation:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-report --user-id=7
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
 Use an authorized backend administrator ID. This checks fresh metadata and
@@ -295,7 +346,7 @@ If a process/machine stops, inspect native queue/process state first. An
 administrator can mark an abandoned job failed when no worker holds its lock:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-reset --job=JOB_ID --apply
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-reset --job=JOB_ID --apply
 ```
 
 The old queued task will become a no-op; no catalogue records or archives are
@@ -305,14 +356,15 @@ completion does not require resetting jobs or restarting services.
 For an explicitly reviewed foreground pilot:
 
 ```sh
-php support/bin/caUtils mdpn-preservation-create --collection-id=12 --user-id=7 --mode=full --apply
-php support/bin/caUtils mdpn-preservation-run --job=JOB_ID --apply
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-create --collection-id=12 --user-id=7 --mode=full --apply
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-run --job=JOB_ID --apply
 ```
 
 The IDs above are illustrative; choose an authorized test collection/account.
 Do not pass `--disable-item-level-access-control` to preservation commands.
 
-From the source monorepo root:
+Development checks run as your normal developer account from the source
+monorepo root (including on macOS), rather than the deployed server account:
 
 ```sh
 bash scripts/check.sh
