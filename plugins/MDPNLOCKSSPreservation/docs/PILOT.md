@@ -27,6 +27,11 @@ production exports, record edits, credential retrieval or transfers.
   remove a member; create supplements. Inspect the complete change inventory.
 - Run a scan on unchanged content and verify no changes; request a new full
   deposit and verify its recovery chain is independent of earlier deposits.
+- Run `mdpn-preservation-report --user-id=ADMIN_ID` and check all non-deleted
+  collections, parent coverage, new/unpreserved children, stale confirmed
+  preservation, uploaded-but-unconfirmed updates, failures and history-only
+  results. Verify no preservation files/ledger/jobs change and review both text
+  and JSON output. See [reporting](REPORTING.md) for exit flags and I/O costs.
 - Lower the part-size limit for small test fixtures, exercise multiple parts,
   and verify the serialized byte limit, repeated metadata and per-job Bag-Count.
 - Simulate missing/unreadable originals, source edits during capture, insufficient

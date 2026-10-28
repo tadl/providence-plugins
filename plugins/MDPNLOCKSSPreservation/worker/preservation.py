@@ -8,6 +8,7 @@ import argparse
 import base64
 import copy
 import csv
+from collections import Counter
 import hashlib
 import io
 import json
@@ -113,6 +114,25 @@ def changes(current, previous=None):
     if current["schema"] != previous.get("schema", {}):
         result.append({"category": "schema", "key": "metadata-schema", "operation": "changed"})
     return result
+
+
+def compare_report(request):
+    """Fresh fixity comparison, with no bags, staging files or ledger writes."""
+    current = copy.deepcopy(request["snapshot"])
+    for category in ("records", "relationships"):
+        current[category] = current[category] or {}
+    current["files"] = [read_original(f) for f in sorted(current["files"], key=lambda f: f["key"])]
+    current_fingerprint = fingerprint(current)
+    comparisons = {}
+    for job_id, path in request["baselines"].items():
+        saved = json.loads(Path(path).read_text(encoding="utf-8"))["snapshot"]
+        if saved.get("format") != FORMAT or saved.get("deposit_id") != job_id or any(saved[k] != current[k] for k in ("repository_id", "collection_id")) or saved.get("fingerprint") != fingerprint(saved):
+            raise ValueError("A preservation baseline is inconsistent or corrupt")
+        counts = Counter(change["category"] + "_" + change["operation"] for change in changes(current, saved))
+        if current.get("external_references", []) != saved.get("external_references", []):
+            counts["external_references_changed"] += 1
+        comparisons[job_id] = {"current": current_fingerprint == saved["fingerprint"], "changes": dict(counts)}
+    return {"checked_at": current["captured_at"], "comparisons": comparisons}
 
 
 def csv_bytes(rows, fields):
@@ -436,6 +456,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     package = sub.add_parser("build")
     package.add_argument("request")
+    sub.add_parser("compare", help="Read a maintenance comparison request from stdin; write summaries only")
     verify = sub.add_parser("verify")
     verify.add_argument("archives", nargs="+")
     restore = sub.add_parser("recover")
@@ -446,6 +467,8 @@ def main():
     try:
         if args.command == "build":
             result = build(json.loads(Path(args.request).read_text(encoding="utf-8")))
+        elif args.command == "compare":
+            result = compare_report(json.load(sys.stdin.buffer))
         elif args.command == "verify":
             result = [{k: v for k, v in verify_archive(p).items() if k != "snapshot"} for p in args.archives]
         else:

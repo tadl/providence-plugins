@@ -270,6 +270,20 @@ validation against an isolated fresh installation during the pilot.
 
 ## Operations and development
 
+For a read-only report across all collections, including outdated preservation:
+
+```sh
+php support/bin/caUtils mdpn-preservation-report --user-id=7
+```
+
+Use an authorized backend administrator ID. This checks fresh metadata and
+original SHA-256 by default, recognizes parent-deposit coverage, and separates
+uploaded content from confirmed preservation. `--history-only` skips current
+content checks; `--format=json --quiet` provides machine-readable output;
+`--fail-on-attention` gives a nonzero exit when action is needed. It creates no
+jobs, bags or ledger writes. See [maintenance reporting](docs/REPORTING.md) for
+status meanings, privacy, inherited coverage, runtime cost and exit behavior.
+
 Back up the **entire private state directory**, including `ledger.sqlite`, job
 directories, `result.json` and request/diagnostic files, while no jobs are
 running. Metadata and originals there are private collection exports. Retained
@@ -309,6 +323,7 @@ Or run the focused suites:
 ```sh
 php plugins/MDPNLOCKSSPreservation/tests/core_test.php
 php plugins/MDPNLOCKSSPreservation/tests/service_test.php
+php plugins/MDPNLOCKSSPreservation/tests/report_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php
 python3 -B -m unittest discover -s plugins/MDPNLOCKSSPreservation/tests -p 'test_*.py'
 ```

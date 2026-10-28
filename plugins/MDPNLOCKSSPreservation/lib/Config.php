@@ -27,7 +27,7 @@ final class Config {
 		return ['name' => 'Generic LOCKSS staging','bagit_version' => '1.0','serialization' => 'application/tar','manifest_algorithm' => 'sha256',
 			'required_tags' => ['Source-Organization','Contact-Name','Contact-Email','External-Identifier','Bagging-Date','Payload-Oxum']];
 	}
-	public function stateDirectory() : string {
+	public function stateDirectory(bool $writable=true) : string {
 		$path = rtrim((string)$this->get('state_directory'), '/');
 		if (!$path || $path[0] !== '/' || !is_dir($path) || is_link($path) || realpath($path) !== $path) {
 			throw new Failure('Configure an existing canonical absolute state_directory outside the web root.');
@@ -36,8 +36,8 @@ final class Config {
 			throw new Failure('state_directory must be outside the Providence web root.');
 		}
 		if (self::insideSourceRepository($path)) { throw new Failure('state_directory must be outside the source repository.'); }
-		if ((fileperms($path) & 0077) !== 0 || !is_writable($path)) {
-			throw new Failure('state_directory must be writable by the worker and private (0700).');
+		if ((fileperms($path) & 0077) !== 0 || !is_readable($path) || ($writable && !is_writable($path))) {
+			throw new Failure($writable ? 'state_directory must be writable by the worker and private (0700).' : 'state_directory must be readable by the report account and private (0700 or 0500).');
 		}
 		return $path;
 	}

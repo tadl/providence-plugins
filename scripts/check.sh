@@ -20,6 +20,7 @@ php plugins/collectionSibling/tests/plugin_test.php
 php plugins/groupCollectionRootMap/tests/acl_test.php
 php plugins/MDPNLOCKSSPreservation/tests/core_test.php
 TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/tests/service_test.php
+TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/tests/report_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php
 python3 -B -m unittest discover -s plugins/MDPNLOCKSSPreservation/tests -p 'test_*.py'
 if [[ "${1:-}" == "--browser" ]]; then

@@ -9,6 +9,14 @@ final class Tool {
 	public function __construct(Config $config, string $root) { $this->config = $config; $this->root = $root; }
 	public function run($command, $settings) : bool {
 		try {
+			if (in_array($command,['mdpn_preservation_report','mdpn-preservation-report'],true)) {
+				require_once __DIR__.'/Report.php'; require_once __CA_MODELS_DIR__.'/ca_users.php';
+				$format = (string)(($settings['format'] ?? '') ?: 'text');
+				if (!in_array($format,['text','json'],true)) { throw new Failure('Report format must be text or json.'); }
+				$report = (new Report($this->config,new Store($this->config,false,true),$this->root))->run(new \ca_users((int)($settings['user-id'] ?? 0)),!empty($settings['history-only']));
+				print Report::render($report,$format);
+				return !$report['summary']['errors'] && !$report['warnings'] && (empty($settings['fail-on-attention']) || !$report['summary']['attention_required']);
+			}
 			if (empty($settings['apply'])) { throw new Failure('This operation requires --apply; no action was taken.'); }
 			if ($command === 'mdpn_preservation_init' || $command === 'mdpn-preservation-init') {
 				$store = new Store($this->config,true);

@@ -31,6 +31,11 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 	}
 	public function hookCLICaUtilsGetCommands($commands) {
 		$commands['MDPNLOCKSSPreservation'] = [
+			'mdpn_preservation_report' => ['Command' => 'mdpn-preservation-report','Options' => ['user-id|u=s' => _t('Backend administrator ID with preservation permission.'),
+				'format|f=s' => _t('text (default) or json; use --quiet for JSON.'),'history-only' => _t('Report recorded history without claiming content is current.'),
+				'fail-on-attention' => _t('Exit nonzero when any collection needs attention.')],
+				'Help' => _t('Read-only status for all non-deleted collections at the configured destination. Checks fresh metadata and SHA-256 by default. Never queues, packages, uploads or changes confirmations.'),
+				'ShortHelp' => _t('Report collection preservation status and outdated deposits.')],
 			'mdpn_preservation_init' => ['Command' => 'mdpn-preservation-init','Options' => ['apply' => _t('Initialize private preservation storage.')],
 				'Help' => _t('Initialize the private SQLite ledger in an existing 0700 directory outside the web root. Requires --apply.'),'ShortHelp' => _t('Initialize preservation storage.')],
 			'mdpn_preservation_create' => ['Command' => 'mdpn-preservation-create','Options' => ['apply' => _t('Queue the requested preservation operation.'),

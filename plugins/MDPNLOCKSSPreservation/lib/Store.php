@@ -8,14 +8,19 @@ final class Store {
 	private $db;
 	private $root;
 	private $organization;
-	public function __construct(Config $config, bool $initialize=false) {
-		$this->root = $config->stateDirectory();
+	private $readOnly;
+	public function __construct(Config $config, bool $initialize=false, bool $readOnly=false) {
+		if ($initialize && $readOnly) { throw new Failure('Read-only preservation storage cannot be initialized.'); }
+		$this->readOnly = $readOnly;
+		$this->root = $config->stateDirectory(!$readOnly);
 		$this->organization = (string)$config->get('organization_code');
 		$path = $this->root.'/ledger.sqlite';
 		if (is_link($path) || (!$initialize && !is_file($path))) { throw new Failure('Preservation storage is not initialized. Run mdpn-preservation-init --apply.'); }
 		$old = umask(0077);
-		try { $this->db = new \PDO('sqlite:'.$path, null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]); }
+		$dsn = $readOnly ? 'sqlite:file:'.str_replace('%2F','/',rawurlencode($path)).'?mode=ro' : 'sqlite:'.$path;
+		try { $this->db = new \PDO($dsn, null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]); }
 		finally { umask($old); }
+		if ($readOnly) { $this->db->exec('PRAGMA query_only=ON'); }
 		$this->db->exec('PRAGMA busy_timeout=10000');
 		if ($initialize) { $this->initialize(); }
 		if ($this->db->query('PRAGMA user_version')->fetchColumn() != 1) { throw new Failure('Unsupported preservation ledger version.'); }
@@ -41,13 +46,16 @@ final class Store {
 		} catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
 	}
 	public function repositoryId() : string { return (string)$this->db->query("SELECT value FROM settings WHERE key='repository_id'")->fetchColumn(); }
+	private function requireWritable() : void { if ($this->readOnly) { throw new Failure('Preservation storage is read-only.'); } }
 	public function groupIdentifier(int $collection) : string {
+		$this->requireWritable();
 		if ($collection < 1 || !preg_match('/^[A-Z0-9]{2,12}$/D',$this->organization)) { throw new Failure('Configure organization_code before preserving collections.'); }
 		$this->db->prepare('INSERT OR IGNORE INTO collections VALUES (?,?)')->execute([$collection,$this->organization.'_'.$this->repositoryId().'_C'.$collection]);
 		$q = $this->db->prepare('SELECT group_identifier FROM collections WHERE collection_id=?'); $q->execute([$collection]);
 		return $q->fetchColumn();
 	}
 	public function create(int $collection, string $mode, string $target, int $user, array $metadata) : array {
+		$this->requireWritable();
 		if ($collection < 1 || $user < 1 || !in_array($mode, ['scan', 'full', 'supplemental'], true)) { throw new Failure('Invalid preservation request.'); }
 		$this->db->exec('BEGIN IMMEDIATE');
 		try {
@@ -79,7 +87,14 @@ final class Store {
 		$q = $this->db->prepare("SELECT id FROM jobs WHERE collection_id=? AND target=? AND mode!='scan' AND status IN ('built','uploaded','confirmed') ORDER BY revision DESC LIMIT 1");
 		$q->execute([$collection,$target]); $id = $q->fetchColumn(); return $id ? $this->get($id) : null;
 	}
+	/** Uncapped history for maintenance: old confirmations must not disappear. */
+	public function reportJobs(string $target) : \Generator {
+		$q = $this->db->prepare("SELECT id FROM jobs WHERE target=? AND mode!='scan' ORDER BY collection_id, revision DESC");
+		$q->execute([$target]);
+		while ($id = $q->fetchColumn()) { yield $this->get($id); }
+	}
 	public function update(string $id, array $fields) : void {
+		$this->requireWritable();
 		$allowed = ['status','task_id','result','error','confirmation']; $set = []; $values = [];
 		foreach ($fields as $key => $value) {
 			if (!in_array($key,$allowed,true)) { throw new \LogicException('Invalid ledger field.'); }
@@ -89,12 +104,14 @@ final class Store {
 		$this->db->prepare('UPDATE jobs SET '.implode(',',$set).' WHERE id=?')->execute($values);
 	}
 	public function directory(string $id, bool $create=false) : string {
+		if ($create) { $this->requireWritable(); }
 		$this->get($id); $path = $this->root.'/'.$id;
 		if (is_link($path)) { throw new Failure('Unsafe preservation job directory.'); }
 		if ($create && !is_dir($path) && !mkdir($path,0700)) { throw new Failure('Cannot create preservation job directory.'); }
 		return $path;
 	}
 	public function lock(int $collection) {
+		$this->requireWritable();
 		$path = $this->root.'/collection_'.$collection.'.lock';
 		if (is_link($path)) { throw new Failure('Unsafe preservation lock.'); }
 		$handle = @fopen($path,'c');
