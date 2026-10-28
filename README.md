@@ -8,6 +8,7 @@ Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-
 
 | Plugin | Purpose |
 | --- | --- |
+| [MDPNLOCKSSPreservation](plugins/MDPNLOCKSSPreservation/README.md) | Pilot collection preservation: BagIt full/supplemental deposits, private history, SFTP staging and offline recovery |
 | [collectionSibling](plugins/collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
 | [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collections/objects to assigned roots, with optional native ACL search/browse segmentation |
 | [representationFilenameIdno](plugins/representationFilenameIdno/README.md) | Derive representation identifiers and blank preferred labels from uploaded filenames |
@@ -24,7 +25,7 @@ plugin folder into Providence's `app/plugins/` directory with its existing name:
 for example, `plugins/collectionSibling/` becomes `app/plugins/collectionSibling/`.
 The repository root, scripts and documentation are not an application plugin.
 
-All three shared `conf/plugin.conf` files default to disabled. Enable plugins
+All shared `conf/plugin.conf` files default to disabled. Enable plugins
 through the installation's ignored `conf/plugin.local.conf` files, using the
 corresponding examples as a starting point. Preserve those local files during
 updates. A checkout or source push does not install or enable any plugin.
@@ -43,7 +44,8 @@ bash scripts/check.sh --browser
 ```
 
 Both commands lint all tracked PHP and JavaScript files, run the sibling
-and collection ACL standalone PHP suites, and check Git whitespace. `--browser`
+and collection ACL standalone PHP suites, run preservation PHP/Python suites,
+and check Git whitespace. Python 3.9+ is required for preservation checks. `--browser`
 also runs Chromium interaction checks. The filename plugin currently has no
 standalone behavior suite; PHP lint does not verify its live behavior.
 

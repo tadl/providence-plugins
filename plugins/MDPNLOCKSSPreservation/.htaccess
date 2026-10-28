@@ -1,0 +1,2 @@
+# Runtime routes go through Providence's front controller; no static assets here.
+Require all denied

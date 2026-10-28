@@ -1,0 +1,34 @@
+{
+  "name": "MDPN",
+  "source": "https://github.com/MiDPN/MDPN-Config/blob/main/MDPN-DART-Settings.json",
+  "bagit_version": "1.0",
+  "serialization": "application/tar",
+  "manifest_algorithm": "sha256",
+  "required_tags": [
+    "Source-Organization",
+    "Contact-Name",
+    "Contact-Email",
+    "External-Identifier",
+    "Bagging-Date",
+    "Payload-Oxum"
+  ],
+  "source_organizations": [
+    "Western Michigan University",
+    "Capital Area District Libraries",
+    "Northern Michigan University Libraries",
+    "Eastern Michigan University",
+    "Traverse Area District Library",
+    "Hillsdale College",
+    "Kalamazoo Valley Museum",
+    "Michigan State University",
+    "University of Michigan",
+    "Wayne State University Libraries",
+    "Midwest Collaborative for Library Services",
+    "IMLS Grant Recipient",
+    "Kalamazoo College",
+    "Comstock Township Library",
+    "Sloan Museum of Discovery",
+    "Detroit Institute of Arts",
+    "Arab American National Museum"
+  ]
+}

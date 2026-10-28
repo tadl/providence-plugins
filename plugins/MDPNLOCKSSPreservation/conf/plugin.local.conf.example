@@ -1,0 +1,23 @@
+# This file contains synthetic examples. The actual plugin.local.conf is ignored.
+enable = 1
+# Existing canonical directory, owned by the web/queue service account, mode 0700.
+# Keep this outside the document root; include it in private backups.
+state_directory = /srv/preservation-state
+python_binary = /usr/bin/python3
+organization_code = EXAMPLE
+source_organization = Example Archive
+contact_name = Preservation Staff
+contact_email = preservation@example.org
+part_size_bytes = 50000000000
+# Use mdpn for MDPN's exact organization allowlist; generic for compatible peers.
+bagit_profile = generic
+transport = local
+destination_id = local-testing
+# After a local pilot, configure a stable new destination and verified host key.
+# transport = sftp
+# destination_id = example-lockss
+# sftp_host = ingest.example.org
+# sftp_port = 22
+# sftp_directory = /incoming
+# sftp_host_key_sha256 = SHA256:REPLACE_WITH_INDEPENDENTLY_VERIFIED_FINGERPRINT
+# credentials_file = /etc/providence/preservation-credentials.json
