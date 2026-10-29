@@ -46,9 +46,9 @@ private credentials file and an agreed upload/finalization convention.
 Public `access` and catalogue `status` values never filter inclusion. A deposit
 includes the selected non-deleted collection and its descendants; objects
 attached using the configured collection-hierarchy relationship; their object
-components; all original representations; captions, sidecars and multifile
-originals; and file/media attributes, including their multifiles and authority
-lookups. If collection-hierarchy mode is disabled
+components; all uploaded original representations; captions, sidecars and
+non-generated multifile attachments; and file/media attributes, including their
+non-generated attachments and authority lookups. If collection-hierarchy mode is disabled
 and no hierarchy relationship type is configured, all object/collection
 relationship types count as membership.
 
@@ -79,6 +79,22 @@ Regenerable thumbnails/previews, user accounts/passwords, server configuration,
 application code, databases outside the scoped catalogue export and previously
 deleted records without an earlier deposit are outside the preservation set.
 This plugin complements normal database/media/application backups.
+
+Providence stores generated document/image pages and video frames as multifiles,
+each with its own media version called `original`. These are derivative media,
+and their bytes are excluded from new deposits. Their rows and metadata remain
+in the snapshot with a `generated_preview` entry identifying the preserved
+`source_file_key` and the `regenerate` disposition. Capture stops if that source
+original is absent from the preservation inventory.
+
+Recognition follows native preview conventions: JPEG output, a numeric page
+position or video timestamp, the source media type, and an empty or native
+preview filename. Named uploads, non-positional attachments and unrecognized
+multifiles remain preserved. Sites with custom multifile importers must review
+those conventions before their pilot; do not infer provenance from a `.jpg`
+extension or the filename suffix `_original` alone. Thumbnails, viewer tiles and
+other media versions are excluded because only uploaded originals are selected.
+Existing bags remain immutable and may contain previews from earlier versions.
 
 ## Install for local testing
 
@@ -362,9 +378,15 @@ content checks; `--format=json --quiet` provides machine-readable output;
 jobs, bags or ledger writes. See [maintenance reporting](docs/REPORTING.md) for
 status meanings, privacy, inherited coverage, runtime cost and exit behavior.
 
-Back up the **entire private state directory**, including `ledger.sqlite`, job
-directories, `result.json` and request/diagnostic files, while no jobs are
-running. Metadata and originals there are private collection exports. Retained
+New job directories are stored under `state_directory/jobs/JOB_ID/`. The ledger,
+queue log and locks stay at the state root. Existing jobs directly under the
+state root remain readable and retryable in place; do not move them manually,
+because their saved requests contain absolute paths. Read-only reports support
+both layouts. Job directories and the `jobs/` parent must remain private (0700).
+
+Back up the **entire private state directory**, including `ledger.sqlite`, `jobs/`,
+any legacy job directories, `result.json` and request/diagnostic files, while no
+jobs are running. Metadata and originals there are private collection exports. Retained
 tar files accumulate until an operator reviews retention. Do not delete ledger
 or result files when reclaiming archive space. Credentials and normal complete
 application/database/media backups have separate backup requirements.

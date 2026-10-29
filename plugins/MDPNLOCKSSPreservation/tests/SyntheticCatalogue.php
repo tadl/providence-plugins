@@ -4,6 +4,7 @@ class SyntheticCatalogue {
 	public $data;
 	public $denied = [];
 	public $finished = 0;
+	public $generatedPreviews = [];
 	private $definitions;
 	public function __construct() {
 		$this->data = [
@@ -11,6 +12,7 @@ class SyntheticCatalogue {
 			'ca_objects' => [10 => ['object_id' => 10,'parent_id' => null,'access' => 0],11 => ['object_id' => 11,'parent_id' => 10,'access' => 0],12 => ['object_id' => 12,'parent_id' => null,'deleted' => 1]],
 			'ca_objects_x_collections' => [1 => ['relation_id' => 1,'object_id' => 10,'collection_id' => 2,'type_id' => 5],2 => ['relation_id' => 2,'object_id' => 11,'collection_id' => 2,'type_id' => 5],3 => ['relation_id' => 3,'object_id' => 10,'collection_id' => 99,'type_id' => 5]],
 			'ca_object_representations' => [20 => ['representation_id' => 20,'access' => 0]],
+			'ca_object_representation_multifiles' => [],
 			'ca_objects_x_object_representations' => [1 => ['relation_id' => 1,'object_id' => 10,'representation_id' => 20],2 => ['relation_id' => 2,'object_id' => 11,'representation_id' => 20]],
 			'ca_entities' => [30 => ['entity_id' => 30,'parent_id' => null,'access' => 0]],
 			'ca_places' => [40 => ['place_id' => 40,'parent_id' => null,'access' => 0]],
@@ -25,6 +27,7 @@ class SyntheticCatalogue {
 		$this->definitions = [
 			'ca_collections' => ['collection_id',13,null], 'ca_objects' => ['object_id',57,'ca_object_labels'],
 			'ca_object_representations' => ['representation_id',56,null], 'ca_entities' => ['entity_id',20,null],
+			'ca_object_representation_multifiles' => ['multifile_id',203,null],
 			'ca_places' => ['place_id',72,null], 'ca_attribute_value_multifiles' => ['multifile_id',201,null],
 			'ca_object_representation_sidecars' => ['sidecar_id',200,null], 'ca_attributes' => ['attribute_id',3,null],
 			'ca_attribute_values' => ['value_id',4,null], 'ca_acl' => ['acl_id',1,null], 'ca_object_labels' => ['label_id',58,null],
@@ -56,8 +59,10 @@ class SyntheticCatalogue {
 	}
 	public function checkAccess(string $table, array $row) : void { if (in_array($table.':'.$row[$this->info($table)['primary_key']],$this->denied,true)) { throw new RuntimeException('permission denied'); } }
 	public function files(string $table, array $row, array $attributes) : array {
-		if (!in_array($table,['ca_object_representations','ca_object_representation_sidecars','ca_attribute_value_multifiles'],true)) { return []; }
+		if ($this->generatedPreview($table,$row)) { return []; }
+		if (!in_array($table,['ca_object_representations','ca_object_representation_multifiles','ca_object_representation_sidecars','ca_attribute_value_multifiles'],true)) { return []; }
 		$id = $row[$this->info($table)['primary_key']];
 		return [['key' => $table.':'.$id,'source_path' => '/synthetic/original','original_filename' => 'synthetic.tif','owner' => ['table' => $table,'id' => $id]]];
 	}
+	public function generatedPreview(string $table, array $row) : ?array { return $this->generatedPreviews[$table.':'.$row[$this->info($table)['primary_key']]] ?? null; }
 }

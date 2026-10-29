@@ -21,6 +21,10 @@ production exports, record edits, credential retrieval or transfers.
   collections, object components, duplicate `idno` values, shared objects and
   representations, non-public originals, multilingual/repeated/container
   metadata, file/media attributes, captions, sidecars and multifile originals.
+- Include PDFs/videos and a multipage image with generated viewer pages/frames.
+  Verify the uploaded sources are present and the generated media bytes are
+  absent, with explicit regeneration/source metadata. Separately uploaded JPEGs,
+  named attachments and file/media attribute originals must remain preserved.
 - Run through the actual native task queue and its isolated PHP bootstrap.
   Use `sudo -u www-data -- php support/bin/caUtils mdpn-preservation-process-queue --apply`
   and verify an unrelated pending task is neither processed nor a blocker.

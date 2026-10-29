@@ -10,9 +10,12 @@ final class ProvidenceCatalogue {
 	private $user;
 	private $info = [];
 	private $attributeTypes = [];
+	private $previewPolicies = [];
+	private $previewSources = [];
 	public function __construct($user) { $this->user = $user; }
 	public function begin() : void {
 		$this->attributeTypes = [];
+		$this->previewPolicies = $this->previewSources = [];
 		require_once __CA_LIB_DIR__.'/Db/Transaction.php';
 		$this->db = new \Db(null, ['uniqueConnection' => true]);
 		$this->db->dieOnError(false);
@@ -86,8 +89,10 @@ final class ProvidenceCatalogue {
 	}
 	public function files(string $table, array $row, array $attributes) : array {
 		$files = []; $info = $this->info($table); $id = (int)$row[$info['primary_key']];
+		$preview = $this->generatedPreview($table,$row);
 		$model = $this->model($table,$row);
 		foreach ($model->getFieldsArray() as $field => $settings) {
+			if ($preview && $field === 'media') { continue; }
 			$type = $settings['FIELD_TYPE'] ?? null;
 			if (!in_array($type,[FT_MEDIA,FT_FILE],true) || empty($row[$field])) { continue; }
 			$media = $type === FT_MEDIA ? $model->getMediaInfo($field) : null;
@@ -100,7 +105,7 @@ final class ProvidenceCatalogue {
 			$files[] = $this->file($table.':'.$id.':'.$field, $path, $name ?: ($row['original_filename'] ?? basename((string)$path)),
 				['table' => $table,'id' => $id,'field' => $field], $media['INPUT']['MD5'] ?? ($table === 'ca_object_representations' ? ($row['md5'] ?? null) : null));
 		}
-		if (in_array($table,['ca_object_representations','ca_object_representation_multifiles','ca_attribute_value_multifiles','ca_object_representation_captions','ca_object_representation_sidecars'],true) && !$files) { throw new Failure('A representation or attached file has no readable original. Preservation stopped without omitting it.'); }
+		if (!$preview && in_array($table,['ca_object_representations','ca_object_representation_multifiles','ca_attribute_value_multifiles','ca_object_representation_captions','ca_object_representation_sidecars'],true) && !$files) { throw new Failure('A representation or attached file has no readable original. Preservation stopped without omitting it.'); }
 		require_once __CA_LIB_DIR__.'/Attributes/Attribute.php';
 		foreach ($attributes as $attribute) {
 			foreach ($attribute['values'] as $value) {
@@ -118,6 +123,42 @@ final class ProvidenceCatalogue {
 			}
 		}
 		return $files;
+	}
+	/** Native preview generation uses positional resource paths and JPEG output. */
+	public static function previewKind(string $parentMime, string $mime, string $resource, string $originalName) : ?string {
+		if ($mime !== 'image/jpeg') { return null; }
+		$originalName = basename($originalName);
+		if (strpos($parentMime,'video/') === 0 && preg_match('/^[0-9]+(?:\.[0-9]+)?s$/D',$resource)) {
+			return ($originalName === '' || strpos($originalName,'caVideoPreview') === 0) ? 'video_frame' : null;
+		}
+		$pageSource = $parentMime === 'application/pdf' || strpos($parentMime,'image/') === 0
+			|| in_array($parentMime,['application/msword','application/rtf','text/rtf'],true)
+			|| preg_match('~^application/vnd\.(?:openxmlformats-officedocument\.|oasis\.opendocument\.|ms-)~D',$parentMime);
+		if ($pageSource && preg_match('/^[0-9]+$/D',$resource)) {
+			return ($originalName === '' || preg_match('/^ca(?:Document|Multipage)Preview/',$originalName)) ? 'document_page' : null;
+		}
+		return null;
+	}
+	public function generatedPreview(string $table, array $row) : ?array {
+		if (!in_array($table,['ca_object_representation_multifiles','ca_attribute_value_multifiles'],true)) { return null; }
+		require_once __CA_LIB_DIR__.'/Media/MediaInfoCoder.php';
+		$key = $table.':'.$row['multifile_id'];
+		if (array_key_exists($key,$this->previewPolicies)) { return $this->previewPolicies[$key]; }
+		$representation = $table === 'ca_object_representation_multifiles';
+		$parentTable = $representation ? 'ca_object_representations' : 'ca_attribute_values';
+		$parentField = $representation ? 'representation_id' : 'value_id'; $id = (int)$row[$parentField];
+		$source = $parentTable.':'.$id;
+		if (!isset($this->previewSources[$source])) {
+			$parents = $this->rows($parentTable,$parentField,[$id]);
+			$parent = $parents[(string)$id] ?? [];
+			$media = (new \MediaInfoCoder($parent[$representation ? 'media' : 'value_blob'] ?? null))->getMedia();
+			$this->previewSources[$source] = (string)($media['INPUT']['MIMETYPE'] ?? '');
+		}
+		$media = (new \MediaInfoCoder($row['media'] ?? null))->getMedia();
+		$kind = self::previewKind($this->previewSources[$source],(string)($media['INPUT']['MIMETYPE'] ?? ''),
+			(string)($row['resource_path'] ?? ''),(string)($media['ORIGINAL_FILENAME'] ?? ''));
+		return $this->previewPolicies[$key] = $kind ? ['kind' => $kind,'resource_path' => (string)$row['resource_path'],
+			'source_file_key' => $representation ? $source.':media' : 'attribute:'.$id,'disposition' => 'regenerate'] : null;
 	}
 	private function attributeType(int $id) : int {
 		if (!$this->attributeTypes) { foreach ($this->rows('ca_metadata_elements') as $row) { $this->attributeTypes[(int)$row['element_id']] = (int)$row['datatype']; } }
@@ -243,6 +284,13 @@ final class Collector {
 					if (!empty($row['parent_id']) && !isset($this->records[$table][(string)$row['parent_id']])) { $external[$table.':'.$row['parent_id']] = ['table' => $table,'id' => (int)$row['parent_id']]; }
 				}
 			}
+			foreach ($this->records as $rows) {
+				foreach ($rows as $record) {
+					if (isset($record['generated_preview']) && !isset($this->files[$record['generated_preview']['source_file_key']])) {
+						throw new Failure('A generated preview has no preserved source original. Preservation stopped without omitting it.');
+					}
+				}
+			}
 			ksort($this->records); ksort($this->relationships); ksort($external);
 			foreach ($this->records as &$rows) { ksort($rows,SORT_NATURAL); } unset($rows);
 			foreach ($this->relationships as &$rows) { ksort($rows,SORT_NATURAL); } unset($rows);
@@ -324,7 +372,9 @@ final class Collector {
 			if (isset($this->files[$file['key']]) && $this->files[$file['key']] !== $file) { throw new Failure('Conflicting original file identities.'); }
 			$this->files[$file['key']] = $file;
 		}
-		return ['row' => $row,'labels' => $info['label_table'] ? array_values($c->rows($info['label_table'],$info['primary_key'],[$id])) : [],'attributes' => $attributes,'acl' => $acl];
+		$record = ['row' => $row,'labels' => $info['label_table'] ? array_values($c->rows($info['label_table'],$info['primary_key'],[$id])) : [],'attributes' => $attributes,'acl' => $acl];
+		if (method_exists($c,'generatedPreview') && ($preview = $c->generatedPreview($table,$row))) { $record['generated_preview'] = $preview; }
+		return $record;
 	}
 	/** Preserve bytes losslessly without letting invalid UTF-8 break JSON. */
 	public static function portable($value) {

@@ -56,6 +56,14 @@ and all native value rows) and `acl`. Every field is retained rather than using
 the editor's display template. Binary/non-UTF-8 strings use a single-key
 `{"$base64": "..."}` object; decode to the exact original bytes where needed.
 
+Generated multifile page/frame records can additionally contain
+`generated_preview`, with `kind`, `resource_path`, `source_file_key` and
+`disposition: regenerate`. Their derivative media bytes are deliberately absent
+from the file inventory. Recreate them from the preserved uploaded source using
+Providence's media processing; do not treat their historical media descriptors
+as uploaded originals. Earlier bags can include these derivatives in their file
+inventories and remain recoverable with the same command.
+
 CSV cells are JSON values. This deliberately preserves nulls, repeated values,
 multilingual labels and metadata containers; JSON strings also prevent a value
 beginning with `=` from becoming a spreadsheet formula. Read CSV using a CSV

@@ -108,6 +108,8 @@ try {
 	}
 	$config = new \MDPNPreservation\Config($values); $store = new \MDPNPreservation\Store($config,true);
 	$catalogue = new RuntimeCatalogue(); $catalogue->source = $root.'/synthetic-original'; file_put_contents($catalogue->source,'synthetic original content');
+	$catalogue->data['ca_object_representation_multifiles'] = [1 => ['multifile_id' => 1,'representation_id' => 20,'resource_path' => '1']];
+	$catalogue->generatedPreviews['ca_object_representation_multifiles:1'] = ['kind' => 'document_page','source_file_key' => 'ca_object_representations:20','resource_path' => '1','disposition' => 'regenerate'];
 	$service = new \MDPNPreservation\Service($config,$store,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
 	$user = new ca_users(1);
 	$reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__,4).'/providence';
@@ -127,6 +129,9 @@ try {
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'An isolated worker must restore the freshly loaded requester identity');
 	$built = $store->get($first['id']);
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
+	$saved = json_decode(file_get_contents($store->directory($first['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR);
+	check($saved['snapshot']['records']['ca_object_representation_multifiles'][1]['generated_preview']['disposition'] === 'regenerate'
+		&& !in_array('ca_object_representation_multifiles:1',array_column($saved['snapshot']['files'],'key'),true),'PHP-to-Python packaging retains preview regeneration metadata without copying generated media');
 	check(count($built['result']['recovery_chain']) === 1,'Recovery roadmap includes full deposit');
 	check($service->run($first['id'])['status'] === 'built','Duplicate queue delivery is idempotent');
 	$scan = $service->enqueue(1,'scan',$user,[]); check($service->run($scan['id'])['status'] === 'scanned','Scan completes');

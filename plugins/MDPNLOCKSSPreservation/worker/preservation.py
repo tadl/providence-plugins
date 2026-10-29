@@ -171,6 +171,9 @@ Rows retain source database IDs. Raw binary values use {\"$base64\": \"...\"}.
 Do not run raw rows as SQL against another installation. Import through CA APIs,
 mapping old IDs, vocabulary IDs, relationship types, locales and attribute IDs.
 Original media references must be rebound to the files listed in files.csv.
+Generated page/frame records marked generated_preview with disposition regenerate
+retain metadata but omit derivative bytes. Recreate those previews from their
+preserved source_file_key using Providence's media processing.
 
 All parts of a deposit repeat the same metadata snapshot. Bag-Count numbers the
 parts of THIS DEPOSIT. Bag-Group-Identifier remains the collection's identifier

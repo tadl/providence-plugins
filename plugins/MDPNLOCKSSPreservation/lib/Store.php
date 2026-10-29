@@ -105,10 +105,28 @@ final class Store {
 	}
 	public function directory(string $id, bool $create=false) : string {
 		if ($create) { $this->requireWritable(); }
-		$this->get($id); $path = $this->root.'/'.$id;
-		if (is_link($path)) { throw new Failure('Unsafe preservation job directory.'); }
-		if ($create && !is_dir($path) && !mkdir($path,0700)) { throw new Failure('Cannot create preservation job directory.'); }
+		$this->get($id);
+		$jobs = $this->root.'/jobs'; $path = $jobs.'/'.$id; $legacy = $this->root.'/'.$id;
+		$this->checkDirectory($jobs);
+		if ((file_exists($legacy) || is_link($legacy)) && (file_exists($path) || is_link($path))) {
+			throw new Failure('The preservation job exists in both directory layouts. Resolve the duplicate before continuing.');
+		}
+		// Existing requests contain absolute output paths. Keep their directories
+		// in place so retained archives, retries and historical snapshots still work.
+		if (file_exists($legacy) || is_link($legacy)) { $path = $legacy; }
+		elseif ($create) { $this->checkDirectory($jobs,true); }
+		$this->checkDirectory($path,$create);
 		return $path;
+	}
+	private function checkDirectory(string $path, bool $create=false) : void {
+		clearstatcache(true,$path);
+		if (is_link($path) || (file_exists($path) && (!is_dir($path) || realpath($path) !== $path || (fileperms($path) & 0077) !== 0))) {
+			throw new Failure('Unsafe preservation job directory. Use canonical private directories (0700).');
+		}
+		if ($create && !is_dir($path) && !@mkdir($path,0700) && !is_dir($path)) { throw new Failure('Cannot create preservation job directory.'); }
+		if ($create && (is_link($path) || realpath($path) !== $path || (fileperms($path) & 0077) !== 0 || !is_writable($path))) {
+			throw new Failure('Unsafe preservation job directory. Use canonical writable private directories (0700).');
+		}
 	}
 	public function lock(int $collection) {
 		$this->requireWritable();
