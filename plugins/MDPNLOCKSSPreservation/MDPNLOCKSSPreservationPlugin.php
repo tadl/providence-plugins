@@ -31,6 +31,9 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 	}
 	public function hookCLICaUtilsGetCommands($commands) {
 		$commands['MDPNLOCKSSPreservation'] = [
+			'mdpn_preservation_process_queue' => ['Command' => 'mdpn-preservation-process-queue','Options' => ['apply' => _t('Process pending preservation tasks.')],
+				'Help' => _t('Process only MDPNLOCKSSPreservation tasks using the native queue handler filter. Requires --apply. Each isolated worker rechecks the original requester permissions. No recurring or unrelated tasks run.'),
+				'ShortHelp' => _t('Process the collection preservation queue.')],
 			'mdpn_preservation_report' => ['Command' => 'mdpn-preservation-report','Options' => ['user-id|u=s' => _t('Backend administrator ID with preservation permission.'),
 				'format|f=s' => _t('text (default) or json; use --quiet for JSON.'),'history-only' => _t('Report recorded history without claiming content is current.'),
 				'fail-on-attention' => _t('Exit nonzero when any collection needs attention.')],

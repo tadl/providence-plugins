@@ -114,6 +114,13 @@ try {
 		'contact-name' => '','contact-email' => '','description' => '']); $cli_output = ob_get_clean();
 	check($created,'CLI defaults must survive empty strings from native caUtils');
 	$cli_job = json_decode($cli_output,true); $store->update($cli_job['job_id'],['status' => 'cancelled']);
+	ob_start(); $processed = $tool->run('mdpn_preservation_process_queue',['apply' => '1']); $queue_output = ob_get_clean();
+	check($processed && TaskQueue::$processedHandlers === ['MDPNLOCKSSPreservation'],'CLI must use the native SQL handler filter, so unrelated tasks cannot block or run');
+	check(strpos($queue_output,'Preservation queue processed') !== false,'Queue command reports completion without claiming a deposit succeeded');
+	TaskQueue::$queueSucceeds = false;
+	ob_start(); $processed = $tool->run('mdpn-preservation-process-queue',['apply' => '1']); ob_end_clean();
+	check(!$processed,'A failed queue run must return a failing command status');
+	TaskQueue::$queueSucceeds = true;
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($user) { \MDPNPreservation\Service::authorize($user,1); },'native item-level permission checks');
 	print "Preservation subprocess, history, permissions, CSRF and editor view checks passed.\n";

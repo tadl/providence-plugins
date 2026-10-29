@@ -116,12 +116,21 @@ is separate from the Unix account selected by sudo.
 7. Grant `can_preserve_collections` to the intended backend role. Grant
    `can_confirm_preservation` as well to people who will verify node ingestion.
    Reload the role editor after clearing the cache; sign back in if needed.
-8. Configure or use the installation's existing CLI task-queue runner under
-   `www-data`. For an explicit preservation-only pilot invocation:
+8. Configure a preservation queue runner under `www-data`. For an explicit
+   preservation-only pilot invocation:
 
    ```sh
-   sudo -u www-data -- php support/bin/caUtils process-task-queue --tasks=MDPNLOCKSSPreservation --skip-recurring-tasks
+   sudo -u www-data -- php support/bin/caUtils mdpn-preservation-process-queue --apply
    ```
+
+   Schedule this command through the server's normal cron or service manager
+   so jobs continue after the browser closes; avoid overlapping invocations.
+   It processes only this plugin's native queue handler, rechecks each
+   requester's permissions in an isolated process and runs no recurring tasks.
+   Providence 2.0.10's general `process-task-queue --tasks=...` can stop at an
+   unrelated task ahead of preservation jobs; use the dedicated command when
+   processing preservation independently. An existing general queue runner may
+   also process preservation tasks normally.
 
 Initialization creates a SQLite ledger and a permanent random installation
 identifier. It does not modify Providence's database schema. Each catalogue

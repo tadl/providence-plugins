@@ -22,6 +22,8 @@ production exports, record edits, credential retrieval or transfers.
   representations, non-public originals, multilingual/repeated/container
   metadata, file/media attributes, captions, sidecars and multifile originals.
 - Run through the actual native task queue and its isolated PHP bootstrap.
+  Use `sudo -u www-data -- php support/bin/caUtils mdpn-preservation-process-queue --apply`
+  and verify an unrelated pending task is neither processed nor a blocker.
 - Confirm originals are exported despite public access/status values; reject
   an unauthorized member instead of omitting it. Revoke the requester's role
   while a job is queued and verify it fails without producing a new baseline.

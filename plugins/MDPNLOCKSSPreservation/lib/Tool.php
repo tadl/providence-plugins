@@ -23,6 +23,14 @@ final class Tool {
 				print Store::json(['initialized' => true,'repository_id' => $store->repositoryId()])."\n"; return true;
 			}
 			$store = new Store($this->config); $service = new Service($this->config,$store,$this->root);
+			if (in_array($command,['mdpn_preservation_process_queue','mdpn-preservation-process-queue'],true)) {
+				require_once __CA_LIB_DIR__.'/TaskQueue.php';
+				$queue = new \TaskQueue();
+				// The general --tasks option examines only the first pending task;
+				// the handler argument filters the native SQL selection itself.
+				if (!$queue->processQueue('MDPNLOCKSSPreservation') || $queue->numErrors()) { throw new Failure('The preservation queue reported an error. Review private diagnostics and collection preservation history.'); }
+				print "Preservation queue processed.\n"; return true;
+			}
 			if (in_array($command,['mdpn_preservation_create','mdpn-preservation-create'],true)) {
 				require_once __CA_MODELS_DIR__.'/ca_users.php';
 				$user = new \ca_users((int)($settings['user-id'] ?? 0));
