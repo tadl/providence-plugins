@@ -180,8 +180,8 @@ does not reset the web runtime's OPcache.
 
 ## Archivist workflow
 
-Open an existing collection and follow **Preservation and deposit history** in
-its inspector. Review the organization/contact values and optional description.
+Open an existing collection and follow **PRESERVATION** in its sidebar.
+Review the organization/contact values and optional description.
 Choose a full deposit or a supplement to the last complete deposit for the
 current destination, then submit. The operation is queued; refreshing the page
 shows its result and downloadable parts.

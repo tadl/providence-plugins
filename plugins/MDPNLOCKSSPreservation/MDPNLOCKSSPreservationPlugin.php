@@ -23,7 +23,7 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 		$item = $params['t_item'] ?? null; $request = $this->getRequest();
 		if (!$item || $item->tableName() !== 'ca_collections' || !$item->getPrimaryKey() || !$request || !$request->user->canDoAction('can_preserve_collections')) { return $params; }
 		$url = caNavUrl($request,'MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => (int)$item->getPrimaryKey()]);
-		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<div class="mdpn-preservation-inspector"><a href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'._t('Preservation and deposit history').'</a></div>';
+		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 class="mdpn-preservation-inspector"><a href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
 		return $params;
 	}
 	public function hookRegisterTaskQueuePluginDirectories($params) {
