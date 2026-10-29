@@ -134,6 +134,10 @@ is separate from the Unix account selected by sudo.
    processing preservation independently. An existing general queue runner may
    also process preservation tasks normally.
 
+   The internal queue handler is `MDPNPreservation`, fitting Providence's
+   20-character handler column. The installed plugin directory remains
+   `MDPNLOCKSSPreservation`; no core database schema change is required.
+
 Initialization creates a SQLite ledger and a permanent random installation
 identifier. It does not modify Providence's database schema. Each catalogue
 database needs a separate state directory. This initial version assumes one
@@ -180,7 +184,8 @@ does not reset the web runtime's OPcache.
 
 ## Archivist workflow
 
-Open an existing collection and follow **PRESERVATION** in its sidebar.
+Open an existing collection and follow **PRESERVATION** at the end of its sidebar,
+after **LOG**. Basic Info remains the first editor screen.
 Review the organization/contact values and optional description.
 The preservation page retains the native collection inspector and configured
 editor menu, with Preservation highlighted. Links return to the same collection;

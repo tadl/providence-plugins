@@ -5,6 +5,8 @@ require_once __DIR__.'/Store.php';
 require_once __DIR__.'/Catalogue.php';
 
 final class Service {
+	// ca_task_queue.handler is VARCHAR(20); keep this separate from the plugin name.
+	public const QUEUE_HANDLER = 'MDPNPreservation';
 	private $config;
 	private $store;
 	private $root;
@@ -33,7 +35,7 @@ final class Service {
 		try {
 			require_once __CA_LIB_DIR__.'/TaskQueue.php';
 			$queue = new \TaskQueue();
-			$task = $queue->addTask('MDPNLOCKSSPreservation',['job_id' => $job['id']],['user_id' => (int)$job['user_id'],'priority' => 20,
+			$task = $queue->addTask(self::QUEUE_HANDLER,['job_id' => $job['id']],['user_id' => (int)$job['user_id'],'priority' => 20,
 				'entity_key' => 'mdpn:'.$job['collection_id'],'row_key' => 'mdpn:'.$job['id'],'notes' => 'Collection preservation job']);
 			if (!$task) { throw new Failure('The preservation task could not be queued.'); }
 			$this->store->update($job['id'],['task_id' => $task]);

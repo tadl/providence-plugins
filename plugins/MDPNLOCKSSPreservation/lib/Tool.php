@@ -28,7 +28,7 @@ final class Tool {
 				$queue = new \TaskQueue();
 				// The general --tasks option examines only the first pending task;
 				// the handler argument filters the native SQL selection itself.
-				if (!$queue->processQueue('MDPNLOCKSSPreservation') || $queue->numErrors()) { throw new Failure('The preservation queue reported an error. Review private diagnostics and collection preservation history.'); }
+				if (!$queue->processQueue(Service::QUEUE_HANDLER) || $queue->numErrors()) { throw new Failure('The preservation queue reported an error. Review private diagnostics and collection preservation history.'); }
 				print "Preservation queue processed.\n"; return true;
 			}
 			if (in_array($command,['mdpn_preservation_create','mdpn-preservation-create'],true)) {

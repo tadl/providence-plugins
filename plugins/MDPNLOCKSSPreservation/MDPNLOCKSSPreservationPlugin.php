@@ -24,7 +24,8 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 		if (!$item || $item->tableName() !== 'ca_collections' || !$item->getPrimaryKey() || !$request || !$request->user->canDoAction('can_preserve_collections')) { return $params; }
 		$url = caNavUrl($request,'MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => (int)$item->getPrimaryKey()]);
 		$current = $this->isPreservationPage($request) ? ' class="sf-menu-selected" aria-current="page"' : '';
-		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 class="mdpn-preservation-inspector"><a'.$current.' href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
+		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 id="mdpnPreservationMenuItem" class="mdpn-preservation-inspector"><a'.$current.' href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
+		$params['caEditorInspectorAppend'] .= '<script>'.file_get_contents(__DIR__.'/assets/sidebar.js').'</script>';
 		return $params;
 	}
 	private function isPreservationPage($request) : bool {

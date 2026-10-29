@@ -92,9 +92,16 @@ try {
 	$catalogue = new RuntimeCatalogue(); $catalogue->source = $root.'/synthetic-original'; file_put_contents($catalogue->source,'synthetic original content');
 	$service = new \MDPNPreservation\Service($config,$store,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
 	$user = new ca_users(1);
+	$reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__,4).'/providence';
+	check(is_readable($reference.'/install/inc/schema_mysql.sql'),'A trusted Providence SQL schema is required for queue compatibility checks');
+	$schema = file_get_contents($reference.'/install/inc/schema_mysql.sql');
+	check(preg_match('/create\s+table\s+ca_task_queue\s*\((.*?)\)\s*engine/is',$schema,$table) && preg_match('/\bhandler\s+varchar\((\d+)\)/i',$table[1],$field),'Native queue handler width must be discoverable');
+	check(strlen(\MDPNPreservation\Service::QUEUE_HANDLER) <= (int)$field[1],'The internal handler must fit the native task queue column without a schema change');
+	check(is_file(__DIR__.'/../queue/'.\MDPNPreservation\Service::QUEUE_HANDLER.'.php'),'The native handler identifier must resolve to its plugin file');
 	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
 	$first = $service->enqueue(1,'full',$user,[]);
 	check($first['status'] === 'queued' && count(TaskQueue::$jobs) === 1,'Job must persist before queue dispatch');
+	check(TaskQueue::$addedHandlers === [\MDPNPreservation\Service::QUEUE_HANDLER],'Queue insertion must use the short native handler identifier');
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'CLI authorization must establish native requester identity before loading ACL-protected models');
 	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
 	$report = $service->run($first['id']);
@@ -155,7 +162,7 @@ try {
 	check($created,'CLI defaults must survive empty strings from native caUtils');
 	$cli_job = json_decode($cli_output,true); $store->update($cli_job['job_id'],['status' => 'cancelled']);
 	ob_start(); $processed = $tool->run('mdpn_preservation_process_queue',['apply' => '1']); $queue_output = ob_get_clean();
-	check($processed && TaskQueue::$processedHandlers === ['MDPNLOCKSSPreservation'],'CLI must use the native SQL handler filter, so unrelated tasks cannot block or run');
+	check($processed && TaskQueue::$processedHandlers === [\MDPNPreservation\Service::QUEUE_HANDLER],'CLI must select the same native handler used when queueing jobs');
 	check(strpos($queue_output,'Preservation queue processed') !== false,'Queue command reports completion without claiming a deposit succeeded');
 	TaskQueue::$queueSucceeds = false;
 	ob_start(); $processed = $tool->run('mdpn-preservation-process-queue',['apply' => '1']); ob_end_clean();

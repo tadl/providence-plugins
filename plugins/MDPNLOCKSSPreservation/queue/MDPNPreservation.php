@@ -4,7 +4,7 @@ require_once __CA_LIB_DIR__.'/Plugins/WLPlug.php';
 require_once __CA_LIB_DIR__.'/Plugins/IWLPlugTaskQueueHandler.php';
 require_once __DIR__.'/../lib/Service.php';
 
-class WLPlugTaskQueueHandlerMDPNLOCKSSPreservation extends WLPlug implements IWLPlugTaskQueueHandler {
+class WLPlugTaskQueueHandlerMDPNPreservation extends WLPlug implements IWLPlugTaskQueueHandler {
 	public $error;
 	public function __construct() { $this->error = new ApplicationError(); $this->error->setErrorOutput(0); }
 	public function getHandlerName() { return _t('Collection preservation'); }

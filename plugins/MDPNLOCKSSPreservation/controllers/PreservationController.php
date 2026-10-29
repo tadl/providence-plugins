@@ -38,7 +38,7 @@ class PreservationController extends ActionController {
 		$menu = $navigation->getHTMLSideNav('mdpnCollectionSidebar',['hideDisabled' => false]);
 		$inspector = $navigation->getHTMLWidgets();
 		// Preservation is selected here; no underlying editor screen is current.
-		return $inspector.str_replace(['class="sf-menu-selected"',"class='sf-menu-selected'"],'',$menu);
+		return $inspector.'<div id="mdpnCollectionMenu">'.str_replace(['class="sf-menu-selected"',"class='sf-menu-selected'"],'',$menu).'</div>';
 	}
 	public function Index() {
 		$id = $this->collection(); $error = null; $history = []; $baseline = null;
