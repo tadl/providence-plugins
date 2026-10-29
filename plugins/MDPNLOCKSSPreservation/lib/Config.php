@@ -13,13 +13,21 @@ final class Config {
 		$values = [];
 		foreach (['enable', 'state_directory', 'python_binary', 'organization_code', 'source_organization', 'contact_name', 'contact_email',
 			'part_size_bytes', 'bagit_profile', 'transport', 'destination_id', 'sftp_host', 'sftp_port', 'sftp_directory', 'sftp_host_key_sha256', 'credentials_file'] as $key) {
-			$v = $local ? $local->get($key) : false;
-			$values[$key] = ($v !== false) ? $v : $shared->get($key);
+			// Scalar lookup distinguishes an omitted key (false) from a blank override.
+			$v = $local ? $local->getScalar($key) : false;
+			$values[$key] = ($v !== false) ? $v : $shared->getScalar($key);
 		}
 		return new self($values);
 	}
 	public function get(string $key, $default=null) { return $this->values[$key] ?? $default; }
 	public function enabled() : bool { return (bool)$this->get('enable', false); }
+	public function partSizeBytes() : int {
+		$value = $this->get('part_size_bytes');
+		$validType = is_int($value) || (is_string($value) && preg_match('/^[1-9][0-9]*$/D',$value));
+		$bytes = $validType ? filter_var($value,FILTER_VALIDATE_INT,['options' => ['min_range' => 1]]) : false;
+		if ($bytes === false) { throw new Failure('part_size_bytes must be a positive whole number of bytes (for example 50000000000 for 50 GB).'); }
+		return $bytes;
+	}
 	public function profile() : array {
 		$name = $this->get('bagit_profile','mdpn');
 		if ($name === 'mdpn') { return json_decode(file_get_contents(dirname(__DIR__).'/profiles/mdpn.json'),true,512,JSON_THROW_ON_ERROR); }

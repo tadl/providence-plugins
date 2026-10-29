@@ -247,6 +247,11 @@ metadata/tar overhead. Single originals are never cut into byte fragments. If
 one file cannot fit, the build stops; agree a larger limit with the repository
 before changing `part_size_bytes`.
 
+Settings omitted from `plugin.local.conf` inherit the shared `plugin.conf`
+defaults, including this 50 GB limit. An explicit `part_size_bytes` override
+must be a positive whole number of bytes, without units or commas. Invalid
+limits fail before catalogue capture or original-file staging.
+
 Supplements carry complete current metadata, the complete current file inventory
 and a change list, but only new/changed original bytes. Unchanged entries name
 their exact earlier bag and path. Removed records/files/relationships disappear

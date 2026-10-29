@@ -24,8 +24,12 @@ class RuntimeCatalogue extends SyntheticCatalogue {
 }
 class Configuration {
 	public static $values;
-	public static function load($path) { return new self(); }
-	public function get($key) { return self::$values[$key] ?? false; }
+	public static $paths = [];
+	private $settings;
+	public function __construct(array $settings) { $this->settings = $settings; }
+	public static function load($path) { return new self(self::$paths[$path] ?? self::$values); }
+	public function get($key) { $value = $this->getScalar($key); return ($value === false || $value === '') ? null : $value; }
+	public function getScalar($key) { return $this->settings[$key] ?? false; }
 }
 class ApplicationException extends RuntimeException {}
 class SyntheticRequest {
@@ -88,6 +92,20 @@ try {
 		'source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org',
 		'transport' => 'local','destination_id' => 'test','part_size_bytes' => 5000000,'bagit_profile' => 'generic'];
 	Configuration::$values = $values;
+	$configurationRoot = $root.'/configuration'; mkdir($configurationRoot.'/conf',0700,true);
+	file_put_contents($configurationRoot.'/conf/plugin.local.conf','# Synthetic partial local configuration');
+	Configuration::$paths[$configurationRoot.'/conf/plugin.conf'] = array_merge($values,['part_size_bytes' => '50000000000']);
+	Configuration::$paths[$configurationRoot.'/conf/plugin.local.conf'] = ['enable' => '0','contact_name' => ''];
+	$inherited = \MDPNPreservation\Config::load($configurationRoot);
+	check($inherited->partSizeBytes() === 50000000000,'Missing local keys must inherit shared defaults when native get() returns null');
+	check(!$inherited->enabled() && $inherited->get('contact_name','') === '','Explicit zero and blank local overrides must not inherit shared values');
+	Configuration::$paths[$configurationRoot.'/conf/plugin.local.conf']['part_size_bytes'] = '7000000';
+	check(\MDPNPreservation\Config::load($configurationRoot)->partSizeBytes() === 7000000,'An explicit local byte limit must override the shared default');
+	Configuration::$paths[$configurationRoot.'/conf/plugin.local.conf']['part_size_bytes'] = '';
+	fails(function() use ($configurationRoot) { \MDPNPreservation\Config::load($configurationRoot)->partSizeBytes(); },'positive whole number of bytes');
+	foreach ([null,0,'0',-1,1.25,'50GB','9223372036854775808'] as $invalid) {
+		fails(function() use ($invalid) { (new \MDPNPreservation\Config(['part_size_bytes' => $invalid]))->partSizeBytes(); },'positive whole number of bytes');
+	}
 	$config = new \MDPNPreservation\Config($values); $store = new \MDPNPreservation\Store($config,true);
 	$catalogue = new RuntimeCatalogue(); $catalogue->source = $root.'/synthetic-original'; file_put_contents($catalogue->source,'synthetic original content');
 	$service = new \MDPNPreservation\Service($config,$store,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
@@ -123,6 +141,11 @@ try {
 	check($service->run($first['id'])['status'] === 'built','Retry reuses immutable retained package');
 	$queued = $service->enqueue(1,'full',$user,[]); ca_users::$deny = true;
 	check($service->run($queued['id'])['status'] === 'failed','Worker must recheck requester permission'); ca_users::$deny = false;
+	$capturedInvalid = false;
+	$invalidService = new \MDPNPreservation\Service(new \MDPNPreservation\Config(array_merge($values,['part_size_bytes' => null])),$store,dirname(__DIR__),function($user) use (&$capturedInvalid) { $capturedInvalid = true; throw new RuntimeException('Invalid limits must be rejected before capture.'); });
+	$invalidJob = $invalidService->enqueue(1,'full',$user,[]);
+	check($invalidService->run($invalidJob['id'])['status'] === 'failed' && !$capturedInvalid,'An invalid part limit must fail before catalogue capture and original-file staging');
+	check(strpos($store->get($invalidJob['id'])['error'],'positive whole number of bytes') !== false && !is_file($store->directory($invalidJob['id']).'/request.json'),'Invalid-limit failures must be actionable and write no metadata request');
 
 	require_once __DIR__.'/../controllers/PreservationController.php';
 	$request = new SyntheticRequest($user); $response = new SyntheticResponse();

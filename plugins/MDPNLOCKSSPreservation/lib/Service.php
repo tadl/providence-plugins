@@ -79,6 +79,7 @@ final class Service {
 					if (basename($part['filename']) !== $part['filename'] || !hash_equals($part['sha256'],hash_file('sha256',$directory.'/'.$part['filename']))) { throw new Failure('A retained archive has changed. Create a new full deposit.'); }
 				}
 			} else {
+				$partSizeBytes = $job['mode'] === 'scan' ? 0 : $this->config->partSizeBytes();
 				$collector = new Collector(($this->catalogueFactory)($user));
 				$snapshot = $collector->capture((int)$job['collection_id'],$this->store->repositoryId());
 				$snapshot['schema']['bagit_profile'] = $this->config->profile();
@@ -86,7 +87,7 @@ final class Service {
 				$parent = $baseline ? json_decode(file_get_contents($this->store->directory($baseline['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR) : null;
 				$code = (string)$this->config->get('organization_code');
 				$request = ['snapshot' => $snapshot,'job' => $job,'parent' => $parent,'output_directory' => $directory,
-					'organization_code' => $code,'bag_metadata' => $job['metadata'],'part_size_bytes' => (int)$this->config->get('part_size_bytes'),
+					'organization_code' => $code,'bag_metadata' => $job['metadata'],'part_size_bytes' => $partSizeBytes,
 					'bag_group_identifier' => $this->store->groupIdentifier((int)$job['collection_id'])];
 				Store::write($directory.'/request.json',$request);
 				$result = $this->worker($directory);
