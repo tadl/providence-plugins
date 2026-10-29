@@ -34,8 +34,9 @@ class PreservationController extends ActionController {
 		$editorRequest->setAction('Edit'); $editorRequest->setActionExtra('');
 		$editorRequest->setControllerUrl(caNavUrl($editorRequest,'editor/collections','CollectionEditor',''));
 		$navigation = new AppNavigation($editorRequest,$this->response);
-		$inspector = $navigation->getHTMLWidgets();
+		// Resolve the default screen before the inspector builds previous/next URLs.
 		$menu = $navigation->getHTMLSideNav('mdpnCollectionSidebar',['hideDisabled' => false]);
+		$inspector = $navigation->getHTMLWidgets();
 		// Preservation is selected here; no underlying editor screen is current.
 		return $inspector.str_replace(['class="sf-menu-selected"',"class='sf-menu-selected'"],'',$menu);
 	}

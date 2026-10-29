@@ -134,6 +134,7 @@ try {
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
 	$sidebar = $controller->Info();
 	check(strpos($sidebar,'Native collection inspector') !== false && strpos($sidebar,'Basic Info') !== false,'Preservation retains the native inspector and editor screens');
+	check(strpos($sidebar,'data-screen="SyntheticScreen"') !== false,'Resolve the native screen before the inspector builds collection navigation URLs');
 	check(strpos($sidebar,'sf-menu-selected') === false,'The underlying editor screen must not be highlighted on the preservation page');
 	check($request->module === 'MDPNLOCKSSPreservation' && $request->controller === 'Preservation' && $request->action === 'Index' && $request->isPlugin,'Sidebar rendering must not mutate the real request or form routing');
 	check(AppNavigation::$lastRequest->module === 'editor/collections' && AppNavigation::$lastRequest->controller === 'CollectionEditor' && !AppNavigation::$lastRequest->isPlugin,'Native navigation receives an isolated collection-editor request');
