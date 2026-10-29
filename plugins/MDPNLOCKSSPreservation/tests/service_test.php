@@ -72,10 +72,14 @@ try {
 	$catalogue = new RuntimeCatalogue(); $catalogue->source = $root.'/synthetic-original'; file_put_contents($catalogue->source,'synthetic original content');
 	$service = new \MDPNPreservation\Service($config,$store,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
 	$user = new ca_users(1);
+	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
 	$first = $service->enqueue(1,'full',$user,[]);
 	check($first['status'] === 'queued' && count(TaskQueue::$jobs) === 1,'Job must persist before queue dispatch');
+	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'CLI authorization must establish native requester identity before loading ACL-protected models');
+	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
 	$report = $service->run($first['id']);
 	check($report['status'] === 'built','PHP-to-Python build failed: '.($store->get($first['id'])['error'] ?? 'unknown'));
+	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'An isolated worker must restore the freshly loaded requester identity');
 	$built = $store->get($first['id']);
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
 	check(count($built['result']['recovery_chain']) === 1,'Recovery roadmap includes full deposit');

@@ -16,6 +16,9 @@ final class Service {
 	public static function authorize($user, int $collection, string $action='can_preserve_collections') : void {
 		if (defined('__CA_DISABLE_ACL__') && __CA_DISABLE_ACL__) { throw new Failure('Preservation requires native item-level permission checks. Use the supplied isolated queue worker or run without disabling ACLs.'); }
 		if (!$user || !$user->getPrimaryKey() || !$user->get('active') || !$user->canDoAction($action)) { throw new Failure('Preservation permission is required.'); }
+		// Native model load() enforces ACLs before our explicit access check.
+		// CLI workers must establish the validated requester as the current user.
+		$GLOBALS['AUTH_CURRENT_USER_ID'] = (int)$user->getPrimaryKey();
 		require_once __CA_MODELS_DIR__.'/ca_collections.php';
 		$c = new \ca_collections($collection);
 		if (!$c->getPrimaryKey() || $c->get('deleted') || $c->checkACLAccessForUser($user) < __CA_ACL_READONLY_ACCESS__) { throw new Failure('Collection access is required.'); }

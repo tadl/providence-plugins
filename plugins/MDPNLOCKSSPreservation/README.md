@@ -66,6 +66,8 @@ job rather than creating a partial deposit. Viewing historical exports is
 controlled by the current collection ACL and the preservation role action.
 
 The worker reloads the requesting backend user and checks permission again.
+It sets Providence's native current-user context before loading records, so
+native load-time ACL checks use that requester in CLI processes as well.
 Providence's general `process-task-queue` command disables ACLs globally, so this
 plugin delegates to a fresh PHP process that explicitly enables native ACL
 checks. No core patch or dependency on another local plugin is needed.
