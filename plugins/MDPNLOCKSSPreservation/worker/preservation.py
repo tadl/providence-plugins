@@ -427,20 +427,25 @@ def recover(paths, deposit_id, output):
     output = Path(output)
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     try:
+        # Extract each bag's originals together so its member index is read
+        # once, while keeping only one archive descriptor open at a time.
+        by_bag = {}
         for file in snapshot["files"]:
             if file["bag_id"] not in required:
                 raise ValueError("File references a bag outside the recovery chain")
-            relative = PurePosixPath(file["path"])
-            if relative.is_absolute() or ".." in relative.parts or not str(relative).startswith("data/originals/") or "\\" in str(relative):
-                raise ValueError("Unsafe original path")
-            destination = output / relative
-            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            bag = archives[file["bag_id"]]
-            with tarfile.open(bag["path"], "r:*") as tar:
-                with tar.extractfile(file["bag_id"] + "/" + file["path"]) as source, destination.open("xb") as target:
-                    shutil.copyfileobj(source, target, length=1024 * 1024)
-            if destination.stat().st_size != file["size"] or digest(destination) != file["sha256"]:
-                raise ValueError("Reconstructed original has an invalid size or checksum")
+            by_bag.setdefault(file["bag_id"], []).append(file)
+        for bag_id, files in by_bag.items():
+            with tarfile.open(archives[bag_id]["path"], "r:*") as tar:
+                for file in files:
+                    relative = PurePosixPath(file["path"])
+                    if relative.is_absolute() or ".." in relative.parts or not str(relative).startswith("data/originals/") or "\\" in str(relative):
+                        raise ValueError("Unsafe original path")
+                    destination = output / relative
+                    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    with tar.extractfile(bag_id + "/" + file["path"]) as source, destination.open("xb") as target:
+                        shutil.copyfileobj(source, target, length=1024 * 1024)
+                    if destination.stat().st_size != file["size"] or digest(destination) != file["sha256"]:
+                        raise ValueError("Reconstructed original has an invalid size or checksum")
         (output / "catalogue-snapshot.json").write_bytes(encoded(snapshot))
         (output / "README.txt").write_bytes(README)
     except Exception:

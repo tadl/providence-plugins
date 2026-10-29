@@ -6,9 +6,12 @@ snapshot and original files without a running Providence installation.
 
 This is the initial **pilot implementation**. Its standalone synthetic tests
 exercise collection scope, PHP-to-Python packaging, multipart deposits,
-supplements, recovery, permissions, CSRF and SFTP protocol behavior. A real
-Providence/database/media pilot and an actual MDPN transfer have not yet been
-performed. Do the [pilot acceptance checks](docs/PILOT.md) before relying on it.
+supplements, recovery, permissions, CSRF and SFTP protocol behavior. Recovery
+reconstructs original files and the catalogue snapshot; it does not yet import
+that snapshot into a fresh Providence installation. A tested native importer,
+a full restore rehearsal and actual MDPN acceptance are still required. Do the
+[pilot acceptance checks](docs/PILOT.md) before relying on it for catastrophe
+recovery. A successful SFTP test alone does not establish those outcomes.
 
 The shared configuration defaults to disabled and local packaging. Source
 installation never initiates a transfer, creates catalogue records, changes

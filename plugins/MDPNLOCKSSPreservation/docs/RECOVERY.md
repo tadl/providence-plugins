@@ -1,5 +1,10 @@
 # Recovery format 1
 
+The `recover` command reconstructs original files and a catalogue snapshot.
+It does not populate a fresh Providence database. Restoring a working catalogue
+requires the native importer/crosswalk and isolated round-trip test described
+below; successful archive validation and file recovery do not establish that.
+
 Each bag is BagIt 1.0 with `bagit.txt`, `bag-info.txt`,
 `manifest-sha256.txt`, `tagmanifest-sha256.txt`, and these payload files:
 
