@@ -22,6 +22,23 @@ class PreservationController extends ActionController {
 	private function post() : void {
 		if (strtoupper($this->request->getRequestMethod()) !== 'POST' || !caValidateCSRFToken($this->request)) { throw new ApplicationException(_t('A valid form submission is required.')); }
 	}
+	public function Info($parameters=null) : string {
+		$this->collection();
+		require_once __CA_LIB_DIR__.'/AppNavigation.php';
+		// Reuse the configured editor screens and inspector without changing the
+		// real plugin request, its form destinations or its authorization context.
+		$editorRequest = clone $this->request;
+		$editorRequest->setIsApplicationPlugin(false);
+		$editorRequest->setModulePath('editor/collections');
+		$editorRequest->setController('CollectionEditor');
+		$editorRequest->setAction('Edit'); $editorRequest->setActionExtra('');
+		$editorRequest->setControllerUrl(caNavUrl($editorRequest,'editor/collections','CollectionEditor',''));
+		$navigation = new AppNavigation($editorRequest,$this->response);
+		$inspector = $navigation->getHTMLWidgets();
+		$menu = $navigation->getHTMLSideNav('mdpnCollectionSidebar',['hideDisabled' => false]);
+		// Preservation is selected here; no underlying editor screen is current.
+		return $inspector.str_replace(['class="sf-menu-selected"',"class='sf-menu-selected'"],'',$menu);
+	}
 	public function Index() {
 		$id = $this->collection(); $error = null; $history = []; $baseline = null;
 		try {

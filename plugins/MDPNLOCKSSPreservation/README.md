@@ -182,6 +182,9 @@ does not reset the web runtime's OPcache.
 
 Open an existing collection and follow **PRESERVATION** in its sidebar.
 Review the organization/contact values and optional description.
+The preservation page retains the native collection inspector and configured
+editor menu, with Preservation highlighted. Links return to the same collection;
+native screen permissions and site-specific editor layouts still apply.
 Choose a full deposit or a supplement to the last complete deposit for the
 current destination, then submit. The operation is queued; refreshing the page
 shows its result and downloadable parts.

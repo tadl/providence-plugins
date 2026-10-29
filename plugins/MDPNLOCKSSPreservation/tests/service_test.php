@@ -33,9 +33,23 @@ class SyntheticRequest {
 	public $parameters = [];
 	public $method = 'GET';
 	public $csrf = true;
+	public $module = 'MDPNLOCKSSPreservation';
+	public $controller = 'Preservation';
+	public $action = 'Index';
+	public $actionExtra = '';
+	public $isPlugin = true;
+	public $controllerUrl = '/MDPNLOCKSSPreservation/Preservation';
 	public function __construct($user) { $this->user = $user; }
 	public function getParameter($key,$type) { return $this->parameters[$key] ?? null; }
 	public function getRequestMethod() { return $this->method; }
+	public function getModulePath() { return $this->module; }
+	public function getController() { return $this->controller; }
+	public function setModulePath($value) { $this->module = $value; }
+	public function setController($value) { $this->controller = $value; }
+	public function setAction($value) { $this->action = $value; }
+	public function setActionExtra($value) { $this->actionExtra = $value; }
+	public function setIsApplicationPlugin($value) { $this->isPlugin = $value; }
+	public function setControllerUrl($value) { $this->controllerUrl = $value; }
 }
 class SyntheticResponse {
 	public $redirect;
@@ -55,6 +69,12 @@ class ActionController {
 	protected $view;
 	public function __construct(&$request,&$response,$paths) { $this->request = $request; $this->response = $response; $this->view = new SyntheticView($request); }
 	public function render($file) { $this->view->render($file); }
+}
+class BaseApplicationPlugin {
+	protected $description;
+	public static $request;
+	public function __construct() {}
+	public function getRequest() { return self::$request; }
 }
 function caValidateCSRFToken($request) { return $request->csrf; }
 function caNavUrl($request,$module,$controller,$action,$params=[]) { return '/'.$module.'/'.$controller.'/'.$action.'?'.http_build_query($params); }
@@ -112,6 +132,21 @@ try {
 	check(strpos($html,'<script>synthetic</script>') === false && strpos($html,'&lt;script&gt;synthetic&lt;/script&gt;') !== false,'Collection labels must be escaped');
 	check(strpos($html,'name="csrfToken"') !== false && strpos($html,'Local testing') !== false,'Forms include CSRF and distinguish local testing');
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
+	$sidebar = $controller->Info();
+	check(strpos($sidebar,'Native collection inspector') !== false && strpos($sidebar,'Basic Info') !== false,'Preservation retains the native inspector and editor screens');
+	check(strpos($sidebar,'sf-menu-selected') === false,'The underlying editor screen must not be highlighted on the preservation page');
+	check($request->module === 'MDPNLOCKSSPreservation' && $request->controller === 'Preservation' && $request->action === 'Index' && $request->isPlugin,'Sidebar rendering must not mutate the real request or form routing');
+	check(AppNavigation::$lastRequest->module === 'editor/collections' && AppNavigation::$lastRequest->controller === 'CollectionEditor' && !AppNavigation::$lastRequest->isPlugin,'Native navigation receives an isolated collection-editor request');
+	ca_users::$deny = true; fails(function() use ($controller) { $controller->Info(); },'Preservation permission'); ca_users::$deny = false;
+	require_once __DIR__.'/../MDPNLOCKSSPreservationPlugin.php';
+	BaseApplicationPlugin::$request = $request; $plugin = new MDPNLOCKSSPreservationPlugin(dirname(__DIR__));
+	$widgets = $plugin->hookRenderWidgets(['existing' => []]);
+	check(isset($widgets['existing'],$widgets['mdpn_preservation_collection']) && $widgets['mdpn_preservation_collection']['handler']['isplugin'],'The preservation widget uses the supported plugin hook and preserves other widgets');
+	$inspector = $plugin->hookAppendToEditorInspector(['t_item' => new ca_collections(1)])['caEditorInspectorAppend'];
+	check(strpos($inspector,'<h2 ') === 0 && strpos($inspector,'>Preservation</a>') !== false && strpos($inspector,'aria-current="page"') !== false,'Preservation uses the native heading and active-page marker');
+	$request->module = 'editor/collections';
+	check($plugin->hookRenderWidgets(['existing' => []]) === ['existing' => []],'Other editor routes must not receive the preservation sidebar');
+	$request->module = 'MDPNLOCKSSPreservation';
 	require_once __DIR__.'/../lib/Tool.php';
 	$tool = new \MDPNPreservation\Tool($config,dirname(__DIR__));
 	ob_start(); $created = $tool->run('mdpn_preservation_create',['apply' => '1','collection-id' => '1','user-id' => '1','mode' => '',

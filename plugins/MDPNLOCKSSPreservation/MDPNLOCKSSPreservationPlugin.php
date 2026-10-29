@@ -23,8 +23,22 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 		$item = $params['t_item'] ?? null; $request = $this->getRequest();
 		if (!$item || $item->tableName() !== 'ca_collections' || !$item->getPrimaryKey() || !$request || !$request->user->canDoAction('can_preserve_collections')) { return $params; }
 		$url = caNavUrl($request,'MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => (int)$item->getPrimaryKey()]);
-		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 class="mdpn-preservation-inspector"><a href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
+		$current = $this->isPreservationPage($request) ? ' class="sf-menu-selected" aria-current="page"' : '';
+		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 class="mdpn-preservation-inspector"><a'.$current.' href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
 		return $params;
+	}
+	private function isPreservationPage($request) : bool {
+		return $request && $request->getModulePath() === 'MDPNLOCKSSPreservation' && $request->getController() === 'Preservation';
+	}
+	public function hookRenderWidgets($widgets) {
+		$request = $this->getRequest();
+		if (!$this->config->enabled() || !$this->isPreservationPage($request) || !$request->user->canDoAction('can_preserve_collections')) { return $widgets; }
+		$widgets['mdpn_preservation_collection'] = [
+			'domain' => ['module' => 'MDPNLOCKSSPreservation','controller' => 'Preservation'],
+			'handler' => ['module' => 'MDPNLOCKSSPreservation','controller' => 'Preservation','action' => 'Info','isplugin' => true],
+			'parameters' => ['parameter:collection_id' => '']
+		];
+		return $widgets;
 	}
 	public function hookRegisterTaskQueuePluginDirectories($params) {
 		$params['handler_plugin_directories'][] = __DIR__.'/queue'; return $params;
