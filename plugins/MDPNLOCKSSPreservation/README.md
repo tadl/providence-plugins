@@ -258,6 +258,18 @@ Every preservation run reserves a revision and a globally distinct random
 deposit ID. Failed revisions remain in history and are never reused. Scans do
 not consume revisions. Each physical bag has a unique `External-Identifier`.
 
+Package names use the organization code, collection database ID, deposit revision
+and part number: `EXAMPLE_C12_001_P001.tar`. Revision 2 begins with
+`EXAMPLE_C12_002_P001.tar`; a second part is `EXAMPLE_C12_002_P002.tar`.
+`External-Identifier` is the filename without `.tar`. Both numbers are padded to
+at least three digits, and a single-part deposit still includes `_P001`.
+Collection titles and descriptions remain in metadata, so long or changing
+titles do not affect identifiers. The random deposit ID remains in the snapshot
+and ledger. The existing revision counter supplies the deposit number; no new
+counter, naming settings, schema migration or form field is introduced.
+History resets are for disposable pilot runs only. Once production deposits
+begin, retain history so revisions and published identifiers are never reused.
+
 `Bag-Group-Identifier` groups the collection across its lifetime. By this
 plugin's documented convention, **`Bag-Count` counts parts of one deposit**, not
 all historical deposits: `1 of 1` for an ordinary full/supplemental deposit,

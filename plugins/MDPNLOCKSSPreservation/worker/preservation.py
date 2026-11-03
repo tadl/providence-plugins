@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.1"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.2"
 
 
 def encoded(value):
@@ -234,6 +234,8 @@ def build(request):
     parent = request.get("parent")
     if not re.fullmatch(r"[a-f0-9]{32}", job["id"]) or not re.fullmatch(r"[A-Z0-9]{2,12}", request["organization_code"]) or not isinstance(snapshot["collection_id"], int) or snapshot["collection_id"] < 1 or job["mode"] not in ("scan", "full", "supplemental"):
         raise ValueError("Invalid preservation job identity")
+    if type(job.get("revision")) is not int or job["revision"] < (0 if job["mode"] == "scan" else 1):
+        raise ValueError("Invalid preservation revision")
     if job["mode"] == "supplemental" and not parent:
         raise ValueError("A supplement requires a successful baseline")
     if parent and any(snapshot[k] != parent["snapshot"][k] for k in ("repository_id", "collection_id")):
@@ -290,7 +292,8 @@ def build(request):
         group.append(item)
         size += cost
     groups.append(group)
-    names = [request["organization_code"] + "_C" + str(snapshot["collection_id"]) + "_" + job["id"] + "_P" + str(i + 1).zfill(3) for i in range(len(groups))]
+    prefix = request["organization_code"] + "_C" + str(snapshot["collection_id"]) + "_" + str(job["revision"]).zfill(3)
+    names = [prefix + "_P" + str(i + 1).zfill(3) for i in range(len(groups))]
     for name, items in zip(names, groups):
         for item in items:
             item["bag_id"] = name

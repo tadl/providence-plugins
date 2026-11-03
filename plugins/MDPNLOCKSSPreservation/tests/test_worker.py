@@ -40,11 +40,11 @@ class PreservationTests(unittest.TestCase):
         return {"key": key, "source_path": str(source), "original_filename": name,
                 "owner": {"table": "ca_object_representations", "id": key}, "expected_md5": hashlib.md5(content).hexdigest()}
 
-    def build(self, snapshot=None, mode="full", parent=None, limit=5_000_000, metadata=None):
+    def build(self, snapshot=None, mode="full", parent=None, limit=5_000_000, metadata=None, revision=None):
         self.counter += 1
         output = self.root / ("job" + str(self.counter))
         output.mkdir()
-        job = {"id": str(self.counter).zfill(32), "revision": self.counter, "mode": mode,
+        job = {"id": str(self.counter).zfill(32), "revision": self.counter if revision is None else revision, "mode": mode,
                "parent_id": parent["snapshot"].get("deposit_id") if mode == "supplemental" and parent else None}
         request = {"snapshot": snapshot or self.snapshot, "job": job, "parent": parent, "output_directory": str(output),
                    "bag_group_identifier": "EXAMPLE_synthetic_C12", "organization_code": "EXAMPLE", "part_size_bytes": limit,
@@ -84,6 +84,33 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(snapshot["records"], self.snapshot["records"])
         self.assertNotIn("source_path", json.dumps(snapshot))
         self.assertFalse((output / "staging").exists())
+
+    def test_compact_names_use_collection_revision_and_part_numbers(self):
+        self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
+        full, output = self.build(metadata=self.mdpn_metadata())
+        self.assertEqual(full["parts"][0]["filename"], "EXAMPLE_C12_001_P001.tar")
+        self.assertNotIn(full["snapshot"]["deposit_id"], full["parts"][0]["filename"])
+        multipart, parts_output = self.build(limit=1_300_000, metadata=self.mdpn_metadata())
+        self.assertEqual([p["filename"] for p in multipart["parts"]], ["EXAMPLE_C12_002_P001.tar", "EXAMPLE_C12_002_P002.tar"])
+        update = copy.deepcopy(self.snapshot)
+        update["records"]["ca_collections"]["12"]["labels"][0]["name"] = "A very long fictional collection title " * 100
+        supplement, supplement_output = self.build(update, "supplemental", multipart, metadata=self.mdpn_metadata())
+        self.assertEqual(supplement["parts"][0]["filename"], "EXAMPLE_C12_003_P001.tar")
+        archives = self.archives(multipart, parts_output) + self.archives(supplement, supplement_output)
+        for archive in self.archives(full, output) + archives:
+            lines = self.assert_independently_valid(archive).splitlines()
+            self.assertEqual(lines[10], "External-Identifier: " + archive.stem)
+        preservation.recover(archives, supplement["snapshot"]["deposit_id"], self.root / "compact-recovered")
+        large_revision, _ = self.build(metadata=self.mdpn_metadata(), revision=1000)
+        self.assertEqual(large_revision["parts"][0]["filename"], "EXAMPLE_C12_1000_P001.tar")
+
+    def test_invalid_deposit_numbers_fail_before_staging(self):
+        for revision in (0, -1, True, 1.5, "1"):
+            with self.subTest(revision=revision):
+                with self.assertRaisesRegex(ValueError, "preservation revision"):
+                    self.build(revision=revision)
+                self.assertFalse((self.root / ("job" + str(self.counter)) / "staging").exists())
 
     def mdpn_profile(self):
         profile = json.loads((Path(__file__).parents[1] / "profiles/mdpn.json").read_text())
