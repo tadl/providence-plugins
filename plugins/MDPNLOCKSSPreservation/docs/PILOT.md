@@ -1,8 +1,8 @@
 # Pilot acceptance checklist
 
-Source/standalone tests have passed only when reported by the current change.
-This checklist is for the actual installation; it does not authorize deployment,
-production exports, record edits, credential retrieval or transfers.
+Use this checklist to document acceptance of the actual installation before
+production use. Begin with an isolated test catalogue and synthetic material,
+then arrange a receiving-service pilot with the preservation coordinator.
 
 ## Local mode on an isolated catalogue
 
@@ -11,7 +11,7 @@ production exports, record edits, credential retrieval or transfers.
   and extensions for that account and the web runtime.
 - Confirm the private state directory is outside the web root/source checkout,
   mode 0700, on local storage, with appropriate free space and a private backup.
-- Enable only this plugin, perform the documented
+- Enable the preservation plugin, perform the documented
   [application cache clear](../README.md#application-cache-after-installation-or-updates)
   in a maintenance window, initialize the ledger explicitly and grant the two
   role actions deliberately. Check that users can sign back in and that the new
@@ -58,7 +58,8 @@ production exports, record edits, credential retrieval or transfers.
 
 - Obtain MDPN's sender-IP allowance and independently verify its SSH host key.
 - Confirm path, permissions, `.partial` exclusion, rename/finalization behavior,
-  package naming, custom tags, grouped bags and duplicate-submission handling.
+  compact package naming, the blank MDPN group identifier, one AU per tar,
+  bag metadata and duplicate-submission handling.
 - Provision the private credentials file outside the web root and Git, mode
   0600, with the service account as its only reader.
 - Configure a new SFTP destination identity. Its first deposit must be full;

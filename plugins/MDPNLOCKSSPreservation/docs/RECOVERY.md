@@ -108,11 +108,19 @@ and derivatives.
 
    ```sh
    sudo -u www-data -- python3 worker/preservation.py verify \
-     /private/retrieved/full-part-1.tar /private/retrieved/supplement-part-1.tar
+     /private/retrieved/EXAMPLE_C12_001.tar \
+     /private/retrieved/EXAMPLE_C12_002_P001.tar \
+     /private/retrieved/EXAMPLE_C12_002_P002.tar
    sudo -u www-data -- python3 worker/preservation.py recover \
      --deposit=DEPOSIT_ID --output=/private/recovered \
-     /private/retrieved/full-part-1.tar /private/retrieved/supplement-part-1.tar
+     /private/retrieved/EXAMPLE_C12_001.tar \
+     /private/retrieved/EXAMPLE_C12_002_P001.tar \
+     /private/retrieved/EXAMPLE_C12_002_P002.tar
    ```
+
+Replace `DEPOSIT_ID` with the target snapshot's `deposit_id`, also shown in the
+recovery roadmap. This is the internal deposit identifier, not the package
+filename or external identifier.
 
 The output directory must not already exist. The command rejects traversal,
 links, duplicate members, missing/mismatched parts and inconsistent lineage. It
