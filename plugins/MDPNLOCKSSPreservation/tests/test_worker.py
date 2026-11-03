@@ -1,5 +1,6 @@
 """Synthetic deposit/recovery tests. No CA bootstrap, network or real records."""
 import copy
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import io
@@ -39,7 +40,7 @@ class PreservationTests(unittest.TestCase):
         return {"key": key, "source_path": str(source), "original_filename": name,
                 "owner": {"table": "ca_object_representations", "id": key}, "expected_md5": hashlib.md5(content).hexdigest()}
 
-    def build(self, snapshot=None, mode="full", parent=None, limit=5_000_000):
+    def build(self, snapshot=None, mode="full", parent=None, limit=5_000_000, metadata=None):
         self.counter += 1
         output = self.root / ("job" + str(self.counter))
         output.mkdir()
@@ -47,7 +48,7 @@ class PreservationTests(unittest.TestCase):
                "parent_id": parent["snapshot"].get("deposit_id") if mode == "supplemental" and parent else None}
         request = {"snapshot": snapshot or self.snapshot, "job": job, "parent": parent, "output_directory": str(output),
                    "bag_group_identifier": "EXAMPLE_synthetic_C12", "organization_code": "EXAMPLE", "part_size_bytes": limit,
-                   "bag_metadata": {"Contact-Name": "Example Staff", "Contact-Email": "preservation@example.org", "Source-Organization": "Example Archive"}}
+                   "bag_metadata": metadata if metadata is not None else {"Contact-Name": "Example Staff", "Contact-Email": "preservation@example.org", "Source-Organization": "Example Archive"}}
         return preservation.build(request), output
 
     def archives(self, result, output):
@@ -77,11 +78,125 @@ class PreservationTests(unittest.TestCase):
         tags = self.assert_independently_valid(paths[0])
         self.assertIn("Bag-Count: 1 of 1", tags)
         self.assertIn("Bag-Group-Identifier: EXAMPLE_synthetic_C12", tags)
+        self.assertNotIn("Preservation-", tags)
         self.assertEqual(len({f["path"] for f in result["snapshot"]["files"]}), 2)
         snapshot = preservation.verify_archive(paths[0])["snapshot"]
         self.assertEqual(snapshot["records"], self.snapshot["records"])
         self.assertNotIn("source_path", json.dumps(snapshot))
         self.assertFalse((output / "staging").exists())
+
+    def mdpn_profile(self):
+        profile = json.loads((Path(__file__).parents[1] / "profiles/mdpn.json").read_text())
+        self.snapshot["schema"]["bagit_profile"] = profile
+        return profile
+
+    def mdpn_metadata(self):
+        return {"Source-Organization": "Traverse Area District Library", "Contact-Name": "Example Staff",
+                "Contact-Email": "preservation@example.org"}
+
+    def test_mdpn_bag_info_matches_dart3_profile_layout_with_or_without_description(self):
+        reference = json.loads((Path(__file__).parent / "fixtures/dart3-mdpn.json").read_text())
+        profile = self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"synthetic uploaded original")]
+        for description in (None, "Fictional papers", "  Fictional   papers  "):
+            with self.subTest(description=description):
+                metadata = self.mdpn_metadata()
+                if description is not None:
+                    metadata["External-Description"] = description
+                with patch.object(preservation, "datetime") as clock:
+                    clock.now.return_value = datetime(2026, 1, 3, 14, 15, 16, tzinfo=timezone.utc)
+                    result, output = self.build(metadata=metadata)
+                archive = self.archives(result, output)[0]
+                bag_info = self.assert_independently_valid(archive)
+                lines = bag_info.splitlines()
+                tags = dict(line.split(": ", 1) for line in lines)
+                self.assertEqual([line.split(": ", 1)[0] for line in lines], reference["bag_info_fields"])
+                # This is the receiver's actual positional heading lookup.
+                self.assertEqual(lines[10].split(" ", 1)[1].strip(), result["parts"][0]["bag_id"])
+                for name in reference["blank_fields"]:
+                    self.assertEqual(tags[name], "")
+                clean_description = " ".join((description or "").split())
+                self.assertEqual(tags["External-Description"], clean_description)
+                self.assertEqual(tags["BagIt-Profile-Identifier"], reference["profile_identifier"])
+                self.assertEqual(tags["Bagging-Date"], "2026-01-03T14:15:16Z")
+                self.assertEqual(tags["Bagging-Software"], preservation.SOFTWARE)
+                self.assertTrue(tags["Bagging-Software"].startswith("MDPNLOCKSSPreservation/"))
+                self.assertFalse(any(name.startswith("Preservation-") for name in tags))
+                with tarfile.open(archive) as tar:
+                    payloads = [m for m in tar if m.isfile() and "/data/" in m.name]
+                    payload_bytes = sum(m.size for m in payloads)
+                self.assertEqual(tags["Payload-Oxum"], f"{payload_bytes}.{len(payloads)}")
+                self.assertTrue(1024 <= payload_bytes < 1024 ** 2)
+                self.assertEqual(tags["Bag-Size"], f"{payload_bytes / 1024:.1f} kB")
+                expected = "\n".join(reference["bag_info_template"]).format(
+                    size=f"{payload_bytes / 1024:.1f} kB", software=preservation.SOFTWARE,
+                    description=clean_description, bag_id=archive.stem, oxum=f"{payload_bytes}.{len(payloads)}") + "\n"
+                self.assertEqual(bag_info, expected)
+                preservation.recover([archive], result["snapshot"]["deposit_id"], self.root / ("mdpn-recovered" + str(self.counter)))
+        for size, expected in reference["payload_size_examples"].items():
+            self.assertEqual(preservation.dart3_bag_info({}, profile, int(size))["Bag-Size"], expected)
+
+    def test_mdpn_multipart_and_supplement_keep_dart3_layout_and_recovery(self):
+        self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
+        full, output = self.build(limit=1_300_000, metadata=self.mdpn_metadata())
+        self.assertEqual(len(full["parts"]), 2)
+        update = copy.deepcopy(self.snapshot)
+        update["records"]["ca_objects"]["1"]["labels"][0]["name"] = "Revised fictional title"
+        supplement, supplement_output = self.build(update, "supplemental", full, metadata=self.mdpn_metadata())
+        archives = self.archives(full, output) + self.archives(supplement, supplement_output)
+        for archive in archives:
+            lines = self.assert_independently_valid(archive).splitlines()
+            self.assertEqual(lines[10], "External-Identifier: " + archive.stem)
+        tags = dict(line.split(": ", 1) for line in self.assert_independently_valid(archives[-1]).splitlines())
+        self.assertFalse(any(name.startswith("Preservation-") for name in tags))
+        self.assertEqual(supplement["snapshot"]["parent_deposit_id"], full["snapshot"]["deposit_id"])
+        preservation.recover(archives, supplement["snapshot"]["deposit_id"], self.root / "mdpn-chain-recovered")
+
+    def rewrite_bag_info(self, archive, suffix):
+        # Construct legacy/tampered fixtures with independently valid manifests.
+        with tarfile.open(archive) as tar:
+            members = tar.getmembers()
+            content = {m.name: tar.extractfile(m).read() for m in members if m.isfile()}
+        root = next(iter(content)).split("/")[0]
+        content[root + "/bag-info.txt"] += suffix.encode()
+        content[root + "/tagmanifest-sha256.txt"] = b"".join(
+            hashlib.sha256(content[root + "/" + name]).hexdigest().encode() + b"  " + name.encode() + b"\n"
+            for name in ("bagit.txt", "bag-info.txt", "manifest-sha256.txt"))
+        with tarfile.open(archive, "w", format=tarfile.PAX_FORMAT) as tar:
+            for member in members:
+                data = content.get(member.name)
+                if data is not None:
+                    member.size = len(data)
+                tar.addfile(member, io.BytesIO(data) if data is not None else None)
+
+    def test_legacy_mdpn_bags_still_validate_and_recover(self):
+        profile = self.mdpn_profile()
+        del profile["bag_info_order"]
+        del profile["bagit_profile_identifier"]
+        result, output = self.build(metadata=self.mdpn_metadata())
+        archive = self.archives(result, output)[0]
+        self.rewrite_bag_info(archive, "Preservation-Deposit-Identifier: " + result["snapshot"]["deposit_id"]
+                              + "\nPreservation-Mode: full\nPreservation-Revision: " + str(result["snapshot"]["revision"]) + "\n")
+        tags = self.assert_independently_valid(archive)
+        self.assertNotIn("Contact-Phone:", tags)
+        self.assertIn("Bagging-Date: 2026-01-02\n", tags)
+        preservation.recover([archive], result["snapshot"]["deposit_id"], self.root / "legacy-mdpn-recovered")
+        result["parts"][0]["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+        self.mdpn_profile()
+        update = copy.deepcopy(self.snapshot)
+        update["records"]["ca_objects"]["1"]["labels"][0]["name"] = "Revised fictional title"
+        supplement, supplement_output = self.build(update, "supplemental", result, metadata=self.mdpn_metadata())
+        preservation.recover([archive] + self.archives(supplement, supplement_output), supplement["snapshot"]["deposit_id"],
+                             self.root / "legacy-to-new-mdpn-recovered")
+
+    def test_inconsistent_legacy_preservation_tags_are_rejected(self):
+        result, output = self.build()
+        archive = self.archives(result, output)[0]
+        self.rewrite_bag_info(archive, "Preservation-Deposit-Identifier: " + "f" * 32 + "\n")
+        self.assert_independently_valid(archive)
+        with self.assertRaisesRegex(ValueError, "preservation metadata disagree"):
+            preservation.verify_archive(archive)
 
     def test_multipart_full_and_supplements_reconstruct_latest_state(self):
         self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]

@@ -51,6 +51,12 @@ revision, the export table/foreign-key descriptions and packaging profile.
   deposits' archive checksums are carried forward; the current archive checksums
   are in the private ledger/result file and the downloadable recovery roadmap.
 
+New `bag-info.txt` files contain the DART/MDPN transfer metadata only. Deposit
+identity, revision, mode, parent and the recovery chain live in this separate,
+checksummed snapshot. Older bags additionally contain `Preservation-*` tags in
+`bag-info.txt`; the tool accepts those archives and checks any such tags against
+the snapshot. Both layouts use the same recovery command.
+
 Record envelopes contain `row`, `labels`, `attributes` (native attribute rows
 and all native value rows) and `acl`. Every field is retained rather than using
 the editor's display template. Binary/non-UTF-8 strings use a single-key

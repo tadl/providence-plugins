@@ -70,6 +70,10 @@ production exports, record edits, credential retrieval or transfers.
   advance. Reconcile parts already consumed by ingestion before retrying.
 - Have node hosts crawl the new AUs. Record actual node/crawl evidence manually;
   a successful staging upload must remain labelled unconfirmed until then.
+- Check new MDPN bags against the DART3 metadata layout: the profile's optional
+  fields remain present when blank, `External-Identifier` is line 11, and
+  recovery provenance is in `data/metadata/snapshot.json`. Verify the displayed manifest
+  heading and AU title both identify the actual bag.
 - Retrieve the bags from preservation storage and repeat offline recovery and
   fresh-CA reimport acceptance. Review archive retention and routine state backup.
 

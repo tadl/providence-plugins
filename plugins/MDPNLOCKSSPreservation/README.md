@@ -255,10 +255,11 @@ not consume revisions. Each physical bag has a unique `External-Identifier`.
 `Bag-Group-Identifier` groups the collection across its lifetime. By this
 plugin's documented convention, **`Bag-Count` counts parts of one deposit**, not
 all historical deposits: `1 of 1` for an ordinary full/supplemental deposit,
-`1 of 3` through `3 of 3` for one multipart deposit. Additional
-`Preservation-Deposit-Identifier`, `Preservation-Parent-Deposit`,
-`Preservation-Mode` and `Preservation-Revision` tags make this unambiguous.
-Recovery uses the explicit deposit chain, not an inference from Bag-Count.
+`1 of 3` through `3 of 3` for one multipart deposit. The
+deposit, parent, mode and revision fields in `data/metadata/snapshot.json` make
+this unambiguous. Recovery uses that explicit deposit chain, not an inference
+from Bag-Count. Older bags duplicate those fields in `Preservation-*` tags;
+the recovery tool continues to accept and cross-check them.
 
 Parts are independent valid bags, each repeating the complete metadata and
 inventory. The target is 50,000,000,000 **physical archive bytes**, including
@@ -341,7 +342,7 @@ SFTP endpoint and private credentials. Select `bagit_profile = generic` when
 the destination does not use MDPN's organization allowlist.
 
 The receiving workflow must accept BagIt 1.0, UTF-8 tags, SHA-256 payload and tag
-manifests, uncompressed tar serialization, additional preservation tags, and
+manifests, uncompressed tar serialization and
 this package layout. It must know how to expose/ingest those packages into its
 own LOCKSS AUs. SFTP deposits are sent to a staging workflow, not directly to a
 LOCKSS node. Arbitrary custom BagIt profiles, other checksum algorithms, S3 and
@@ -352,6 +353,38 @@ the supplied MDPN DART settings. It explicitly selects BagIt 1.0, correcting the
 settings export's conflicting 0.97 version-tag default. Treat MDPN policy changes
 as reviewed source/configuration changes; the worker never downloads profiles
 at runtime. Each snapshot records the actual profile requirements used.
+
+### DART3 metadata compatibility
+
+New MDPN bags follow DART3's output for the supplied MDPN profile: preserve the
+profile's field order, retain empty optional fields, then append the automatic
+`BagIt-Profile-Identifier`. `External-Identifier` is therefore line 11 even when
+the description is blank. `bag-info.txt` contains exactly that DART/MDPN field
+set; plugin-specific recovery information stays in the separately checksummed
+`data/metadata/snapshot.json`. Generic-profile bags also omit the redundant
+`Preservation-*` tags while keeping their existing standard field layout.
+
+Like DART3, `Bag-Size` describes payload bytes scaled by 1024, with one decimal
+place and labels such as `kB` and `MB`; it is not the physical tar size.
+`Bagging-Date` is the UTC packaging timestamp in RFC 3339 format. The catalogue
+capture timestamp remains in the snapshot. `Bagging-Software` truthfully names
+this plugin. Stable collection IDs, unique bag IDs and the documented deposit
+chain remain part of the preservation format. Existing archives stay immutable
+and remain readable by the recovery tool.
+
+The profile identifier is copied from MDPN's DART settings, which currently
+retain the legacy APTrust `btr-v0.1.json` URL. It is an identifier, not a runtime
+download or a substitute for the actual profile saved in the snapshot. Confirm
+any replacement identifier and changes to grouping/counting conventions with
+MDPN before changing that contract.
+
+Reference behavior was checked against DART3's `dart-runner` v1.0.6:
+[tag ordering and blank fields](https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagit_profile.go#L421-L430),
+[automatic metadata](https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagger.go#L422-L431)
+and [size formatting](https://github.com/APTrust/dart-runner/blob/v1.0.6/util/util.go#L442-L451).
+`tests/fixtures/dart3-mdpn.json` records this external compatibility contract;
+the worker suite checks emitted archives, the receiver's line-11 title lookup,
+empty descriptions, multipart/supplemental recovery and legacy bag recovery.
 
 ## Offline recovery and native CA reimport
 

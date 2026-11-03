@@ -9,6 +9,7 @@ import base64
 import copy
 import csv
 from collections import Counter
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -22,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.0"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.1"
 
 
 def encoded(value):
@@ -202,6 +203,28 @@ def validate_profile(tags, profile):
         raise ValueError("Source organization is not allowed by the BagIt profile")
 
 
+def dart3_bag_info(tags, profile, payload_bytes):
+    """Follow the MDPN profile's DART3 order, including empty optional tags."""
+    order = profile.get("bag_info_order")
+    if not order:
+        return tags
+    ordered = {name: tags.get(name, "") for name in order}
+    # DART3's Bag-Size is the payload size, scaled by 1024 with SI labels.
+    if payload_bytes < 1024:
+        size = str(payload_bytes) + " B"
+    else:
+        divisor, exponent = 1024, 0
+        while payload_bytes // divisor >= 1024 and exponent < 5:
+            divisor *= 1024
+            exponent += 1
+        size = f"{payload_bytes / divisor:.1f} {'kMGTPE'[exponent]}B"
+    ordered["Bag-Size"] = size
+    ordered["Bagging-Date"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # DART appends this automatically when it is absent from the imported tags.
+    ordered["BagIt-Profile-Identifier"] = profile["bagit_profile_identifier"]
+    return ordered
+
+
 def build(request):
     snapshot = copy.deepcopy(request["snapshot"])
     # PHP encodes empty arrays as []; these two fields are keyed maps.
@@ -295,19 +318,21 @@ def build(request):
         manifest = "".join(digest(p) + "  " + p.relative_to(bag).as_posix() + "\n" for p in payload_paths)
         (bag / "manifest-sha256.txt").write_text(manifest, encoding="utf-8")
         (bag / "bagit.txt").write_text("BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n", encoding="utf-8")
+        payload_bytes = sum(p.stat().st_size for p in payload_paths)
         tags = dict(request["bag_metadata"])
         tags.update({"Bag-Group-Identifier": snapshot["bag_group_identifier"], "External-Identifier": name,
                      "Internal-Sender-Identifier": snapshot["repository_id"] + ":ca_collections:" + str(snapshot["collection_id"]),
                      "Bag-Count": str(number) + " of " + str(len(names)), "Bagging-Date": snapshot["captured_at"][:10],
-                     "Bagging-Software": SOFTWARE, "Payload-Oxum": str(sum(p.stat().st_size for p in payload_paths)) + "." + str(len(payload_paths)),
-                     "Preservation-Deposit-Identifier": job["id"], "Preservation-Mode": job["mode"],
-                     "Preservation-Revision": str(job["revision"])})
-        if job.get("parent_id"):
-            tags["Preservation-Parent-Deposit"] = job["parent_id"]
-        validate_profile(tags, snapshot["schema"].get("bagit_profile", {}))
+                     "Bagging-Software": SOFTWARE, "Payload-Oxum": str(payload_bytes) + "." + str(len(payload_paths))})
+        profile = snapshot["schema"].get("bagit_profile", {})
+        tags = dart3_bag_info(tags, profile, payload_bytes)
+        validate_profile(tags, profile)
         for tag, value in tags.items():
             if re.search(r"[\r\n\x00-\x1f\x7f]", tag + str(value)) or ":" in tag:
                 raise ValueError("Unsafe BagIt tag")
+        if profile.get("bag_info_order"):
+            # Match DART3 TagDefinition.ToFormattedString after input validation.
+            tags = {name: re.sub(r"[\t\n\f\r ]+", " ", str(value)).strip() for name, value in tags.items()}
         (bag / "bag-info.txt").write_text("".join(k + ": " + str(v) + "\n" for k, v in tags.items()), encoding="utf-8")
         (bag / "tagmanifest-sha256.txt").write_text("".join(digest(bag / f) + "  " + f + "\n" for f in ("bagit.txt", "bag-info.txt", "manifest-sha256.txt")), encoding="utf-8")
         archive = output / (name + ".tar")
@@ -379,8 +404,15 @@ def verify_archive(path):
             raise ValueError("Invalid preservation snapshot")
         bag_info = dict(line.split(": ", 1) for line in read("bag-info.txt").decode("utf-8").splitlines())
         validate_profile(bag_info, snapshot["schema"].get("bagit_profile", {}))
-        if bag_info.get("External-Identifier") != root or bag_info.get("Preservation-Deposit-Identifier") != snapshot["deposit_id"]:
+        if bag_info.get("External-Identifier") != root:
             raise ValueError("Bag and snapshot identifiers disagree")
+        # New bags keep recovery provenance in the checksummed snapshot only.
+        # Still check these redundant fields when reading an older archive.
+        legacy = {"Preservation-Deposit-Identifier": snapshot["deposit_id"],
+                  "Preservation-Mode": snapshot["mode"], "Preservation-Revision": str(snapshot["revision"]),
+                  "Preservation-Parent-Deposit": snapshot.get("parent_deposit_id")}
+        if any(name in bag_info and bag_info[name] != value for name, value in legacy.items()):
+            raise ValueError("Bag and snapshot preservation metadata disagree")
         inventory = snapshot["files"]
         if len({f["key"] for f in inventory}) != len(inventory) or len({f["path"] for f in inventory}) != len(inventory):
             raise ValueError("Duplicate file inventory identities or paths")

@@ -1,0 +1,55 @@
+{
+  "sources": [
+    "https://github.com/MiDPN/MDPN-Config/blob/main/MDPN-DART-Settings.json",
+    "https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagit_profile.go#L421-L430",
+    "https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagger.go#L422-L431",
+    "https://github.com/APTrust/dart-runner/blob/v1.0.6/util/util.go#L442-L451"
+  ],
+  "bag_info_fields": [
+    "Source-Organization",
+    "Bag-Count",
+    "Bag-Group-Identifier",
+    "Bag-Size",
+    "Bagging-Date",
+    "Bagging-Software",
+    "Contact-Email",
+    "Contact-Name",
+    "Contact-Phone",
+    "External-Description",
+    "External-Identifier",
+    "Internal-Sender-Description",
+    "Internal-Sender-Identifier",
+    "Organization-Address",
+    "Payload-Oxum",
+    "BagIt-Profile-Identifier"
+  ],
+  "blank_fields": ["Contact-Phone", "Internal-Sender-Description", "Organization-Address"],
+  "bag_info_template": [
+    "Source-Organization: Traverse Area District Library",
+    "Bag-Count: 1 of 1",
+    "Bag-Group-Identifier: EXAMPLE_synthetic_C12",
+    "Bag-Size: {size}",
+    "Bagging-Date: 2026-01-03T14:15:16Z",
+    "Bagging-Software: {software}",
+    "Contact-Email: preservation@example.org",
+    "Contact-Name: Example Staff",
+    "Contact-Phone: ",
+    "External-Description: {description}",
+    "External-Identifier: {bag_id}",
+    "Internal-Sender-Description: ",
+    "Internal-Sender-Identifier: synthetic-installation:ca_collections:12",
+    "Organization-Address: ",
+    "Payload-Oxum: {oxum}",
+    "BagIt-Profile-Identifier: https://raw.githubusercontent.com/APTrust/dart/master/profiles/btr-v0.1.json"
+  ],
+  "profile_identifier": "https://raw.githubusercontent.com/APTrust/dart/master/profiles/btr-v0.1.json",
+  "payload_size_examples": {
+    "0": "0 B",
+    "1023": "1023 B",
+    "1024": "1.0 kB",
+    "1048575": "1024.0 kB",
+    "1048576": "1.0 MB",
+    "1073741824": "1.0 GB",
+    "1099511627776": "1.0 TB"
+  }
+}
