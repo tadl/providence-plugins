@@ -119,7 +119,8 @@ try {
 	check(strlen(\MDPNPreservation\Service::QUEUE_HANDLER) <= (int)$field[1],'The internal handler must fit the native task queue column without a schema change');
 	check(is_file(__DIR__.'/../queue/'.\MDPNPreservation\Service::QUEUE_HANDLER.'.php'),'The native handler identifier must resolve to its plugin file');
 	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
-	$first = $service->enqueue(1,'full',$user,[]);
+	$submittedDescription = str_repeat('Synthetic transfer description. ',180).'Complete transfer ending.';
+	$first = $service->enqueue(1,'full',$user,['description' => $submittedDescription]);
 	check($first['status'] === 'queued' && count(TaskQueue::$jobs) === 1,'Job must persist before queue dispatch');
 	check(TaskQueue::$addedHandlers === [\MDPNPreservation\Service::QUEUE_HANDLER],'Queue insertion must use the short native handler identifier');
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'CLI authorization must establish native requester identity before loading ACL-protected models');
@@ -128,6 +129,7 @@ try {
 	check($report['status'] === 'built','PHP-to-Python build failed: '.($store->get($first['id'])['error'] ?? 'unknown'));
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'An isolated worker must restore the freshly loaded requester identity');
 	$built = $store->get($first['id']);
+	check($built['metadata']['External-Description'] === $submittedDescription,'Queued metadata retains the complete description beyond 2000 bytes');
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
 	$saved = json_decode(file_get_contents($store->directory($first['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR);
 	check($saved['snapshot']['records']['ca_object_representation_multifiles'][1]['generated_preview']['disposition'] === 'regenerate'
@@ -163,10 +165,19 @@ try {
 	fails(function() use ($controller) { $controller->Download(); },'another collection');
 	ca_users::$deny = true; fails(function() use ($controller) { $controller->Index(); },'Preservation permission'); ca_users::$deny = false;
 	$request->parameters = ['collection_id' => 1];
+	$longDescription = str_repeat('Synthetic narrative. ',180).'Complete description ending.';
+	ca_collections::$descriptionFields = ['ca_collections.description' => ['<p>'.$longDescription.'</p>'],
+		'ca_collections.collection_scope_content' => ['Fictional scope and content.'],'ca_collections.provenance' => ['Example provenance.']];
 	ob_start(); $controller->Index(); $html = ob_get_clean();
 	check(strpos($html,'<script>synthetic</script>') === false && strpos($html,'&lt;script&gt;synthetic&lt;/script&gt;') !== false,'Collection labels must be escaped');
 	check(strpos($html,'name="csrfToken"') !== false && strpos($html,'Local testing') !== false,'Forms include CSRF and distinguish local testing');
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
+	$dom = new DOMDocument(); @$dom->loadHTML('<?xml encoding="UTF-8">'.$html);
+	$descriptionField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-description"]')->item(0);
+	check($descriptionField && !$descriptionField->hasAttribute('maxlength') && strpos($descriptionField->textContent,$longDescription) !== false
+		&& strpos($descriptionField->textContent,'Scope and content: Fictional scope and content.') !== false
+		&& strpos($descriptionField->textContent,'Provenance: Example provenance.') !== false,'Editor exposes the complete, editable collection description without truncation');
+	ca_collections::$descriptionFields = [];
 	$sidebar = $controller->Info();
 	check(strpos($sidebar,'Native collection inspector') !== false && strpos($sidebar,'Basic Info') !== false,'Preservation retains the native inspector and editor screens');
 	check(strpos($sidebar,'data-screen="SyntheticScreen"') !== false,'Resolve the native screen before the inspector builds collection navigation URLs');

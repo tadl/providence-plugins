@@ -98,7 +98,7 @@ class PreservationTests(unittest.TestCase):
         reference = json.loads((Path(__file__).parent / "fixtures/dart3-mdpn.json").read_text())
         profile = self.mdpn_profile()
         self.snapshot["files"] = [self.original("1", b"synthetic uploaded original")]
-        for description in (None, "Fictional papers", "  Fictional   papers  "):
+        for description in (None, "Fictional papers", "  Fictional   papers  ", "Fictional narrative. " * 200):
             with self.subTest(description=description):
                 metadata = self.mdpn_metadata()
                 if description is not None:

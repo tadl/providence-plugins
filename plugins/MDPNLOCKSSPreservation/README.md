@@ -206,6 +206,12 @@ does not reset the web runtime's OPcache.
 Open an existing collection and follow **PRESERVATION** at the end of its sidebar,
 after **LOG**. Basic Info remains the first editor screen.
 Review the organization/contact values and optional description.
+The editable description combines the collection title with its Description,
+Scope and Content, and Provenance values when available. Missing fields are
+skipped, repeated identical values are included once, and rich text is converted
+to plain text. The full text is retained without the former 2,000-byte limit;
+paragraph breaks become spaces in `External-Description`, matching DART3's
+single-line output. Original rich text remains intact in the catalogue snapshot.
 The preservation page retains the native collection inspector and configured
 editor menu, with Preservation highlighted. Links return to the same collection;
 native screen permissions and site-specific editor layouts still apply.

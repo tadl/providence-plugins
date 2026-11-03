@@ -55,6 +55,26 @@ try {
 	fails(function() { (new Config(['state_directory' => dirname(__DIR__,3)]))->stateDirectory(); },'outside the source repository');
 	fails(function() use ($config) { $config->bagMetadata(['contact_name' => "Example\nExternal-Identifier: injected"]); },'single-line');
 	fails(function() use ($config) { $config->bagMetadata(['contact_email' => 'invalid']); },'valid contact email');
+	$narrative = new class {
+		public $fields = ['description' => ['<p>First paragraph.</p><p>Second &amp; final.</p>'],
+			'collection_scope_content' => ['Brochures and photographs.','Brochures and photographs.'],
+			'provenance' => ['&lt;p&gt;Transferred by Example Society.&lt;/p&gt;']];
+		public function getLabelForDisplay() { return 'Fictional collection'; }
+		public function hasElement($field) { return isset($this->fields[$field]); }
+		public function get($field,$options) {
+			check($options['returnAsArray'] && $options['convertCodesToDisplayText'],'Description reads repeated native values');
+			return $this->fields[substr($field,strlen('ca_collections.'))];
+		}
+	};
+	$description = Config::defaultDescription($narrative);
+	check($description === "Fictional collection\n\nDescription: First paragraph. Second & final.\n\nScope and content: Brochures and photographs.\n\nProvenance: Transferred by Example Society.",'Default description combines full descriptive fields as plain text without duplicate values');
+	$metadata = $config->bagMetadata(['description' => $description]);
+	check(strpos($metadata['External-Description'],"\n") === false && strpos($metadata['External-Description'],'Provenance: Transferred by Example Society.') !== false,'Paragraphs flatten into one complete BagIt field');
+	$longDescription = str_repeat('Synthetic description with café. ',200).'Complete ending.';
+	check($config->bagMetadata(['description' => $longDescription])['External-Description'] === $longDescription,'Full descriptions exceeding 2000 bytes are retained intact');
+	check($config->bagMetadata(['description' => '<p>Safe text.</p><script>unwanted()</script><style>unwanted</style>'])['External-Description'] === 'Safe text.','Description text does not retain active HTML or scripts');
+	fails(function() use ($config) { $config->bagMetadata(['description' => "Invalid\x00text"]); },'control characters');
+	$narrative->fields = []; check(Config::defaultDescription($narrative) === 'Fictional collection','Sites without those narrative fields still receive the title');
 	$mdpn = new Config(['source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org']);
 	fails(function() use ($mdpn) { $mdpn->bagMetadata([]); },'permitted organization');
 	foreach ([

@@ -48,7 +48,7 @@ class PreservationController extends ActionController {
 		} catch (Throwable $e) { $error = $e instanceof \MDPNPreservation\Failure ? $e->getMessage() : _t('Preservation storage is unavailable. Ask an administrator to check configuration.'); }
 		$collection = new ca_collections($id);
 		$this->view->setVar('collection_id',$id); $this->view->setVar('collection_label',$collection->getLabelForDisplay());
-		$this->view->setVar('default_description',preg_replace('/[\r\n\x00-\x1f\x7f]+/',' ',(string)$collection->getLabelForDisplay()));
+		$this->view->setVar('default_description',\MDPNPreservation\Config::defaultDescription($collection));
 		$this->view->setVar('history',$history); $this->view->setVar('baseline',$baseline); $this->view->setVar('preservation_error',$error);
 		$this->view->setVar('preservation_config',$this->preservation_config);
 		$this->render('index_html.php');
