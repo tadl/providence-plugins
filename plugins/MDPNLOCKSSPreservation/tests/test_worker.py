@@ -112,6 +112,28 @@ class PreservationTests(unittest.TestCase):
                     self.build(revision=revision)
                 self.assertFalse((self.root / ("job" + str(self.counter)) / "staging").exists())
 
+    def test_single_full_then_multipart_incremental_reconstructs_all_changes(self):
+        self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"unchanged original")]
+        full, output = self.build(metadata=self.mdpn_metadata())
+        self.assertEqual(full["parts"][0]["filename"], "EXAMPLE_C12_001.tar")
+        update = copy.deepcopy(self.snapshot)
+        update["files"] += [self.original("2", b"a" * 900_000), self.original("3", b"b" * 900_000)]
+        supplement, supplement_output = self.build(update, "supplemental", full, limit=1_300_000, metadata=self.mdpn_metadata())
+        self.assertEqual([p["filename"] for p in supplement["parts"]], ["EXAMPLE_C12_002_P001.tar", "EXAMPLE_C12_002_P002.tar"])
+        self.assertEqual(supplement["snapshot"]["files"][0]["bag_id"], full["parts"][0]["bag_id"])
+        archives = self.archives(full, output) + self.archives(supplement, supplement_output)
+        for number, archive in enumerate(archives[1:], 1):
+            tags = dict(line.split(": ", 1) for line in self.assert_independently_valid(archive).splitlines())
+            self.assertEqual(tags["Bag-Count"], str(number) + " of 2")
+            self.assertEqual(tags["External-Identifier"], archive.stem)
+            self.assertEqual(tags["Bag-Group-Identifier"], "")
+        with self.assertRaisesRegex(ValueError, "required recovery bag"):
+            preservation.recover(archives[:-1], supplement["snapshot"]["deposit_id"], self.root / "missing-incremental-part")
+        preservation.recover(archives, supplement["snapshot"]["deposit_id"], self.root / "multipart-incremental-recovered")
+        originals = [p.read_bytes() for p in (self.root / "multipart-incremental-recovered").rglob("*") if p.is_file() and "originals" in p.parts]
+        self.assertEqual(sorted(originals), [b"a" * 900_000, b"b" * 900_000, b"unchanged original"])
+
     def mdpn_profile(self):
         profile = json.loads((Path(__file__).parents[1] / "profiles/mdpn.json").read_text())
         self.snapshot["schema"]["bagit_profile"] = profile
