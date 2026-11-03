@@ -89,21 +89,21 @@ class PreservationTests(unittest.TestCase):
         self.mdpn_profile()
         self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
         full, output = self.build(metadata=self.mdpn_metadata())
-        self.assertEqual(full["parts"][0]["filename"], "EXAMPLE_C12_001_P001.tar")
+        self.assertEqual(full["parts"][0]["filename"], "EXAMPLE_C12_001.tar")
         self.assertNotIn(full["snapshot"]["deposit_id"], full["parts"][0]["filename"])
         multipart, parts_output = self.build(limit=1_300_000, metadata=self.mdpn_metadata())
         self.assertEqual([p["filename"] for p in multipart["parts"]], ["EXAMPLE_C12_002_P001.tar", "EXAMPLE_C12_002_P002.tar"])
         update = copy.deepcopy(self.snapshot)
         update["records"]["ca_collections"]["12"]["labels"][0]["name"] = "A very long fictional collection title " * 100
         supplement, supplement_output = self.build(update, "supplemental", multipart, metadata=self.mdpn_metadata())
-        self.assertEqual(supplement["parts"][0]["filename"], "EXAMPLE_C12_003_P001.tar")
+        self.assertEqual(supplement["parts"][0]["filename"], "EXAMPLE_C12_003.tar")
         archives = self.archives(multipart, parts_output) + self.archives(supplement, supplement_output)
         for archive in self.archives(full, output) + archives:
             lines = self.assert_independently_valid(archive).splitlines()
             self.assertEqual(lines[10], "External-Identifier: " + archive.stem)
         preservation.recover(archives, supplement["snapshot"]["deposit_id"], self.root / "compact-recovered")
         large_revision, _ = self.build(metadata=self.mdpn_metadata(), revision=1000)
-        self.assertEqual(large_revision["parts"][0]["filename"], "EXAMPLE_C12_1000_P001.tar")
+        self.assertEqual(large_revision["parts"][0]["filename"], "EXAMPLE_C12_1000.tar")
 
     def test_invalid_deposit_numbers_fail_before_staging(self):
         for revision in (0, -1, True, 1.5, "1"):

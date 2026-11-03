@@ -132,7 +132,7 @@ try {
 	check($built['metadata']['External-Description'] === $submittedDescription,'Queued metadata retains the complete description beyond 2000 bytes');
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
 	$saved = json_decode(file_get_contents($store->directory($first['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR);
-	check($saved['parts'][0]['filename'] === 'EXAMPLE_C1_001_P001.tar','PHP-to-Python packaging uses collection ID, deposit revision and part number');
+	check($saved['parts'][0]['filename'] === 'EXAMPLE_C1_001.tar','PHP-to-Python packaging omits the part suffix for a single bag');
 	check($saved['snapshot']['records']['ca_object_representation_multifiles'][1]['generated_preview']['disposition'] === 'regenerate'
 		&& !in_array('ca_object_representation_multifiles:1',array_column($saved['snapshot']['files'],'key'),true),'PHP-to-Python packaging retains preview regeneration metadata without copying generated media');
 	check(count($built['result']['recovery_chain']) === 1,'Recovery roadmap includes full deposit');

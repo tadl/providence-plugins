@@ -258,11 +258,11 @@ Every preservation run reserves a revision and a globally distinct random
 deposit ID. Failed revisions remain in history and are never reused. Scans do
 not consume revisions. Each physical bag has a unique `External-Identifier`.
 
-Package names use the organization code, collection database ID, deposit revision
-and part number: `EXAMPLE_C12_001_P001.tar`. Revision 2 begins with
-`EXAMPLE_C12_002_P001.tar`; a second part is `EXAMPLE_C12_002_P002.tar`.
-`External-Identifier` is the filename without `.tar`. Both numbers are padded to
-at least three digits, and a single-part deposit still includes `_P001`.
+Package names use the organization code, collection database ID and deposit
+revision: `EXAMPLE_C12_001.tar` for a single bag. Multipart deposits add a part
+number: `EXAMPLE_C12_002_P001.tar`, `EXAMPLE_C12_002_P002.tar`, etc.
+`External-Identifier` is the filename without `.tar`. Revision and part numbers
+are padded to at least three digits; a single-part deposit omits the part suffix.
 Collection titles and descriptions remain in metadata, so long or changing
 titles do not affect identifiers. The random deposit ID remains in the snapshot
 and ledger. The existing revision counter supplies the deposit number; no new

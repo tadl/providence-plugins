@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.2"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.3"
 
 
 def encoded(value):
@@ -295,7 +295,7 @@ def build(request):
         size += cost
     groups.append(group)
     prefix = request["organization_code"] + "_C" + str(snapshot["collection_id"]) + "_" + str(job["revision"]).zfill(3)
-    names = [prefix + "_P" + str(i + 1).zfill(3) for i in range(len(groups))]
+    names = [prefix if len(groups) == 1 else prefix + "_P" + str(i + 1).zfill(3) for i in range(len(groups))]
     for name, items in zip(names, groups):
         for item in items:
             item["bag_id"] = name
