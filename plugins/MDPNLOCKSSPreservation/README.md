@@ -270,8 +270,12 @@ counter, naming settings, schema migration or form field is introduced.
 History resets are for disposable pilot runs only. Once production deposits
 begin, retain history so revisions and published identifiers are never reused.
 
-`Bag-Group-Identifier` groups the collection across its lifetime. By this
-plugin's documented convention, **`Bag-Count` counts parts of one deposit**, not
+The snapshot retains a permanent collection-group identity for reconstruction.
+New MDPN `bag-info.txt` files leave the optional `Bag-Group-Identifier` value
+blank, retaining its line for DART3-compatible field ordering. MDPN therefore
+uses each bag's external identifier as its `journalTitle`; it does not group AUs
+automatically by filename prefix. Generic-profile bags retain the group value.
+By this plugin's documented convention, **`Bag-Count` counts parts of one deposit**, not
 all historical deposits: `1 of 1` for an ordinary full/supplemental deposit,
 `1 of 3` through `3 of 3` for one multipart deposit. The
 deposit, parent, mode and revision fields in `data/metadata/snapshot.json` make

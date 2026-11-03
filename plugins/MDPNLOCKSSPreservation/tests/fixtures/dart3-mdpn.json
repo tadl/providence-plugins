@@ -23,11 +23,11 @@
     "Payload-Oxum",
     "BagIt-Profile-Identifier"
   ],
-  "blank_fields": ["Contact-Phone", "Internal-Sender-Description", "Organization-Address"],
+  "blank_fields": ["Bag-Group-Identifier", "Contact-Phone", "Internal-Sender-Description", "Organization-Address"],
   "bag_info_template": [
     "Source-Organization: Traverse Area District Library",
     "Bag-Count: 1 of 1",
-    "Bag-Group-Identifier: EXAMPLE_synthetic_C12",
+    "Bag-Group-Identifier: ",
     "Bag-Size: {size}",
     "Bagging-Date: 2026-01-03T14:15:16Z",
     "Bagging-Software: {software}",

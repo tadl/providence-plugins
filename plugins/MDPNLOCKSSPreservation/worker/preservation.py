@@ -209,6 +209,8 @@ def dart3_bag_info(tags, profile, payload_bytes):
     if not order:
         return tags
     ordered = {name: tags.get(name, "") for name in order}
+    # Keep DART's optional line, without requesting receiver-side AU grouping.
+    ordered["Bag-Group-Identifier"] = ""
     # DART3's Bag-Size is the payload size, scaled by 1024 with SI labels.
     if payload_bytes < 1024:
         size = str(payload_bytes) + " B"
