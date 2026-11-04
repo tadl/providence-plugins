@@ -121,6 +121,9 @@ following workflow.
    left menu. Confirm that the selected collection and its hierarchy are the
    intended preservation scope.
 2. Review the organization, contact name, contact email and both descriptions.
+   Contact fields use the signed-in Providence user's name and email unless
+   installation-specific contact defaults are configured. Both remain editable;
+   missing account details must be completed before sending.
    **External-Description** starts with the first paragraph of the collection's
    **Description**, or its title when no description is available.
    **Internal-Sender-Description** contains the collection title, complete
@@ -279,8 +282,8 @@ checksummed `data/metadata/snapshot.json`.
 | `Bag-Size` | Payload size formatted using DART3's 1024-based calculation and labels such as `kB` and `MB`; not the physical tar size. |
 | `Bagging-Date` | UTC packaging date and time in DART3's RFC 3339 format. |
 | `Bagging-Software` | This plugin's release identifier. The plugin, rather than an installed DART application, creates the bag. |
-| `Contact-Email` | Email submitted by the operator; local configuration may supply a default. |
-| `Contact-Name` | Contact name submitted by the operator; local configuration may supply a default. |
+| `Contact-Email` | Email submitted by the operator; initially the configured contact email, or the signed-in Providence user's email when no override is set. |
+| `Contact-Name` | Contact name submitted by the operator; initially the configured contact name, or the signed-in Providence user's first and last name when no override is set. |
 | `Contact-Phone` | Blank; not collected by the current form. |
 | `External-Description` | The short summary reviewed in the form; initially the first Description paragraph, or the title if unavailable. Serialized as one line of plain text. |
 | `External-Identifier` | Package filename without `.tar`; used as the AU title by MDPN's published processor. |
@@ -521,7 +524,7 @@ The marker setting is quoted to keep its brackets literal.
 | `python_binary` | Absolute path to the Python 3 interpreter used by the worker. |
 | `organization_code` | Required local identity: two to twelve uppercase letters or numbers used at the start of package names. No shared default. Keep it stable after production deposits begin. |
 | `source_organization` | Default for the required organization field in the form. No shared default; must exactly match the MDPN profile when that profile is selected. |
-| `contact_name`, `contact_email` | Optional defaults for the required contact fields in the form. |
+| `contact_name`, `contact_email` | Optional overrides for the required contact fields in the form. Each blank setting uses the signed-in user's corresponding account details. CLI submissions still need configured defaults or explicit contact arguments. |
 | `bagit_profile` | Defaults to `generic` for an agreed compatible service; explicitly select `mdpn` for MDPN's profile and organization list. |
 | `part_size_bytes` | Maximum physical tar size in bytes; defaults to `50000000000`. Use a positive whole number without units or commas. |
 | `transport` | `local` to create packages without transfer; `sftp` to deliver them to staging. |

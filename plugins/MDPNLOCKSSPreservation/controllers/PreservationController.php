@@ -54,6 +54,7 @@ class PreservationController extends ActionController {
 		$this->view->setVar('collection_id',$id); $this->view->setVar('collection_label',$collection->getLabelForDisplay());
 		$this->view->setVar('default_description',\MDPNPreservation\Config::defaultExternalDescription($collection));
 		$this->view->setVar('default_internal_description',\MDPNPreservation\Config::defaultDescription($collection));
+		$this->view->setVar('default_contacts',$this->preservation_config->contactDefaults($this->request->user));
 		$this->view->setVar('history',$history); $this->view->setVar('baseline',$baseline); $this->view->setVar('preservation_error',$error);
 		$this->view->setVar('preservation_config',$this->preservation_config);
 		$this->render('index_html.php');

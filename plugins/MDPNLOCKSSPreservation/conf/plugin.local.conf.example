@@ -7,7 +7,7 @@ state_directory = /srv/preservation-state
 python_binary = /usr/bin/python3
 organization_code = EXAMPLE
 source_organization = Example Archive
-# Optional defaults; blank values require staff to enter contacts on the form.
+# Optional contact overrides; blank values use the signed-in user's name/email.
 contact_name =
 contact_email =
 # Agree a maximum tar size with your receiver; this is a 50 GB starting value.

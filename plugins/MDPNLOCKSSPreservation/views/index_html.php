@@ -4,6 +4,7 @@ $escape = static function($value) { return htmlspecialchars((string)$value,ENT_Q
 $id = (int)$this->getVar('collection_id'); $history = $this->getVar('history'); $config = $this->getVar('preservation_config');
 $baseline = $this->getVar('baseline'); $error = $this->getVar('preservation_error'); $active = false;
 $eligibility = $this->getVar('preservation_eligibility');
+$contacts = $this->getVar('default_contacts');
 foreach ($history as $job) { if (in_array($job['status'],['queued','running'],true)) { $active = true; } }
 $form = function($action,$name) use ($id) {
 	return caFormTag($this->request,$action,$name,'MDPNLOCKSSPreservation/Preservation','post','multipart/form-data','_top',['disableUnsavedChangesWarning' => true]).'<input type="hidden" name="collection_id" value="'.$id.'">';
@@ -37,7 +38,7 @@ $form = function($action,$name) use ($id) {
 <h2><?= $escape(_t('Create a deposit')) ?></h2>
 <?= $form('Submit','mdpnCreateDeposit') ?>
 <?php foreach (['source_organization' => _t('Source organization'),'contact_name' => _t('Contact name'),'contact_email' => _t('Contact email')] as $field => $label): ?>
-<p><label for="mdpn-<?= $escape($field) ?>"><?= $escape($label) ?> *</label><br><input id="mdpn-<?= $escape($field) ?>" name="<?= $escape($field) ?>" type="<?= $field === 'contact_email' ? 'email' : 'text' ?>" required maxlength="500" value="<?= $escape($config->get($field,'')) ?>" style="width:100%;max-width:38em"></p>
+<p><label for="mdpn-<?= $escape($field) ?>"><?= $escape($label) ?> *</label><br><input id="mdpn-<?= $escape($field) ?>" name="<?= $escape($field) ?>" type="<?= $field === 'contact_email' ? 'email' : 'text' ?>" required maxlength="500" value="<?= $escape($field === 'source_organization' ? $config->get($field,'') : ($contacts[$field] ?? '')) ?>" style="width:100%;max-width:38em"></p>
 <?php endforeach; ?>
 <p><label for="mdpn-description"><?= $escape(_t('External-Description: short summary (optional)')) ?></label><br><textarea id="mdpn-description" name="description" rows="4" aria-describedby="mdpn-description-help" style="width:100%;max-width:38em"><?= $escape($this->getVar('default_description')) ?></textarea><br><small id="mdpn-description-help"><?= $escape(_t('Prefilled from the first description paragraph, or the collection title when no description is available. Review before sending.')) ?></small></p>
 <p><label for="mdpn-internal-description"><?= $escape(_t('Internal-Sender-Description: complete narrative (optional)')) ?></label><br><textarea id="mdpn-internal-description" name="internal_description" rows="8" aria-describedby="mdpn-internal-description-help" style="width:100%;max-width:38em"><?= $escape($this->getVar('default_internal_description')) ?></textarea><br><small id="mdpn-internal-description-help"><?= $escape(_t('Includes the collection title, complete description, scope and content, and provenance. Both descriptions become single lines of plain text in bag-info.txt.')) ?></small></p>

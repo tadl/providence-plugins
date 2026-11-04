@@ -195,6 +195,8 @@ try {
 	check(strpos($html,'name="csrfToken"') !== false && strpos($html,'Local testing') !== false,'Forms include CSRF and distinguish local testing');
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
 	$dom = new DOMDocument(); @$dom->loadHTML('<?xml encoding="UTF-8">'.$html);
+	check($dom->getElementById('mdpn-contact_name')->getAttribute('value') === 'Example Staff'
+		&& $dom->getElementById('mdpn-contact_email')->getAttribute('value') === 'preservation@example.org','Configured contact defaults take precedence over account details');
 	$descriptionField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-description"]')->item(0);
 	$internalField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-internal-description"]')->item(0);
 	check($descriptionField && $descriptionField->textContent === 'Short fictional summary.' && !$descriptionField->hasAttribute('readonly'),'The external description is prefilled from the first paragraph and remains editable');
@@ -213,6 +215,26 @@ try {
 	$store->update($first['id'],['result' => $unsafe]); ob_start(); $controller->Index(); $unsafeHtml = ob_get_clean();
 	check(strpos($unsafeHtml,'<script>unsafeBagInfo()</script>') === false && strpos($unsafeHtml,'&lt;/textarea&gt;&lt;script&gt;unsafeBagInfo()&lt;/script&gt;') !== false,'Bag-info text cannot escape its textarea or execute HTML');
 	$store->update($first['id'],['result' => $safe]);
+	$accountFields = $user->fields;
+	$user->fields = ['fname' => 'Example "Archivist"','lname' => '<script>profileName()</script>','email' => 'archivist@example.org'];
+	$contactValues = array_merge($values,['contact_name' => '','contact_email' => '']); Configuration::$values = $contactValues;
+	$contactController = new PreservationController($request,$response);
+	ob_start(); $contactController->Index(); $contactHtml = ob_get_clean();
+	$contactDom = new DOMDocument(); @$contactDom->loadHTML('<?xml encoding="UTF-8">'.$contactHtml);
+	check($contactDom->getElementById('mdpn-contact_name')->getAttribute('value') === trim($user->getName())
+		&& $contactDom->getElementById('mdpn-contact_email')->getAttribute('value') === 'archivist@example.org','Blank contact defaults prefill the signed-in user name and email');
+	check(strpos($contactHtml,'<script>profileName()</script>') === false && strpos($contactHtml,'&lt;script&gt;profileName()&lt;/script&gt;') !== false,'Account contact values are escaped for HTML attributes');
+	foreach (['mdpn-contact_name','mdpn-contact_email'] as $contactId) {
+		$field = $contactDom->getElementById($contactId);
+		check($field->hasAttribute('required') && !$field->hasAttribute('readonly') && !$field->hasAttribute('disabled'),'Prefilled contacts remain editable and required');
+	}
+	$partialContacts = (new \MDPNPreservation\Config(array_merge($contactValues,['contact_name' => 'Configured Contact'])))->contactDefaults($user);
+	check($partialContacts === ['contact_name' => 'Configured Contact','contact_email' => 'archivist@example.org'],'Configured name and email defaults take precedence independently');
+	$user->fields = [];
+	check((new \MDPNPreservation\Config($contactValues))->contactDefaults($user) === ['contact_name' => '','contact_email' => ''],'Missing account details leave blanks for staff to complete');
+	$edited = (new \MDPNPreservation\Config($contactValues))->bagMetadata(['contact_name' => 'Different Example Contact','contact_email' => 'different@example.org']);
+	check($edited['Contact-Name'] === 'Different Example Contact' && $edited['Contact-Email'] === 'different@example.org','Submitted contact edits are retained rather than overwritten with account details');
+	$user->fields = $accountFields; Configuration::$values = $values;
 	ca_collections::$descriptionFields = [];
 	$sidebar = $controller->Info();
 	check(strpos($sidebar,'Native collection inspector') !== false && strpos($sidebar,'Basic Info') !== false,'Preservation retains the native inspector and editor screens');

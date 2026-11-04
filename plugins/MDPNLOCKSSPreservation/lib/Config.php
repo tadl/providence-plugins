@@ -87,6 +87,12 @@ final class Config {
 		if (!preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $id)) { throw new Failure('Configure a stable destination_id.'); }
 		return $transport.':'.$id.':'.hash('sha256', json_encode([$this->get('sftp_host'), $this->get('sftp_port'), $this->get('sftp_directory')]));
 	}
+	public function contactDefaults($user) : array {
+		$name = trim((string)$this->get('contact_name',''));
+		$email = trim((string)$this->get('contact_email',''));
+		return ['contact_name' => $name !== '' ? $name : trim((string)$user->getName()),
+			'contact_email' => $email !== '' ? $email : trim((string)$user->get('email'))];
+	}
 	/** Human-readable transfer description, using descriptive collection fields only. */
 	public static function defaultExternalDescription($collection) : string {
 		$paragraphs = [];
