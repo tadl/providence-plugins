@@ -193,8 +193,15 @@ during capture fail the operation instead of silently advancing its baseline.
 Subsequent edits belong to the next scan/deposit. This is an application-level
 snapshot protocol, not an atomic filesystem/database backup.
 
-Fingerprints include catalogue rows, labels, attributes, relationships, schema,
+The saved integrity fingerprint includes catalogue rows, labels, attributes,
+relationships, the complete schema (including the recorded packaging policy),
 external references and original file identities/checksums. Capture timestamps,
-bag locations and deposit identifiers are excluded, so a fresh independent full
-deposit of unchanged content has the same content fingerprint. Changing a bag
-contact does not itself make catalogue content a supplemental change.
+bag locations and deposit identifiers are excluded. This existing fingerprint
+format remains unchanged for verification of earlier deposits.
+
+Freshness checks compute a separate content comparison from both snapshots,
+excluding only the BagIt packaging profile from the schema. Packaging settings,
+policy provenance or contact changes alone cannot make a collection stale or
+justify a supplement. Catalogue definition and installation-profile changes
+remain significant. A requested new full deposit still records the current
+packaging policy, including when the collection content is unchanged.

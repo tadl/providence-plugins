@@ -168,6 +168,11 @@ take time for large collections. Change detection runs when a scan or deposit
 is requested; it does not run automatically on every catalogue save. A previous
 scan describes its capture time, not subsequent edits.
 
+Packaging settings and their source/version information do not mark a collection
+out of date or justify a supplement. Changes to catalogue definitions and the
+Providence installation profile still count, because they affect interpretation
+and recovery of the metadata.
+
 The page shows the most recent 100 jobs and the first 200 change entries for a
 job. The complete history remains in the private ledger, and the bags retain
 complete change lists. A deposit's roadmap retains older recovery dependencies
@@ -708,9 +713,12 @@ changes such as a different checksum algorithm or required grouping convention
 may still need a plugin update. Updates that move `External-Identifier` away
 from line 11 also require a compatibility review of MDPN's receiving workflow.
 
-Policy changes can affect the snapshot fingerprint even when catalogue records
-are unchanged. Refresh times alone do not affect it. Review a changed receiving
-policy with MDPN and create a new full deposit when adopting a changed format.
+The saved snapshot's integrity fingerprint covers the recorded packaging policy.
+Freshness checks compare catalogue content separately, so policy changes alone
+do not mark a collection out of date, report scan changes or justify an empty
+supplement. Existing bags and their fingerprints remain unchanged. Review a
+changed receiving policy with MDPN and create a new full deposit when adopting
+a changed format.
 
 ### Other LOCKSS deployments
 

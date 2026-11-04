@@ -304,6 +304,90 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(len(new_full["snapshot"]["chain"]), 1)
         preservation.recover(self.archives(new_full, new_output), new_full["snapshot"]["deposit_id"], self.root / "independent")
 
+    def test_packaging_profile_changes_do_not_affect_freshness_or_weaken_integrity(self):
+        profile = self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"unchanged original")]
+        full, _ = self.build(metadata=self.mdpn_metadata())
+        baseline = self.root / "baseline.json"
+        baseline.write_bytes(preservation.encoded(full))
+        original_baseline = baseline.read_bytes()
+        request = {"baselines": {full["snapshot"]["deposit_id"]: str(baseline)}}
+        updates = {"source": "https://example.org/canonical-settings.json", "source_profile_version": "1.4.0",
+                   "source_profile_sha256": "f" * 64, "required_tags": list(reversed(profile["required_tags"])),
+                   "tag_values": {"Contact-Name": ["Example Staff"]}, "absent_profile": None}
+        for field, value in updates.items():
+            with self.subTest(field=field):
+                update = copy.deepcopy(self.snapshot)
+                if field == "absent_profile":
+                    del update["schema"]["bagit_profile"]
+                else:
+                    update["schema"]["bagit_profile"][field] = value
+                compared = preservation.compare_report(dict(request, snapshot=update))["comparisons"]
+                self.assertEqual(compared[full["snapshot"]["deposit_id"]], {"current": True, "changes": {}})
+                scan, _ = self.build(update, "scan", full)
+                self.assertFalse(scan["changed"])
+                self.assertEqual(scan["snapshot"]["changes"], [])
+                self.assertNotEqual(scan["snapshot"]["fingerprint"], full["snapshot"]["fingerprint"])
+                self.assertEqual(baseline.read_bytes(), original_baseline)
+        tampered = copy.deepcopy(full)
+        tampered["snapshot"]["schema"]["bagit_profile"]["source"] = "https://example.org/tampered.json"
+        baseline.write_bytes(preservation.encoded(tampered))
+        with self.assertRaisesRegex(ValueError, "baseline is inconsistent or corrupt"):
+            preservation.compare_report(dict(request, snapshot=self.snapshot))
+
+    def test_packaging_changes_require_content_changes_for_a_supplement(self):
+        self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"unchanged original")]
+        full, output = self.build(metadata=self.mdpn_metadata())
+        update = copy.deepcopy(self.snapshot)
+        update["schema"]["bagit_profile"]["source_profile_version"] = "1.4.0"
+        with self.assertRaisesRegex(ValueError, "no changes since the baseline"):
+            self.build(update, "supplemental", full, metadata=self.mdpn_metadata())
+        new_full, new_output = self.build(update, "full", full, metadata=self.mdpn_metadata())
+        new_archive = self.archives(new_full, new_output)[0]
+        self.assertEqual(preservation.verify_archive(new_archive)["snapshot"]["schema"], update["schema"])
+        self.assertNotEqual(new_full["snapshot"]["fingerprint"], full["snapshot"]["fingerprint"])
+        update["records"]["ca_objects"]["1"]["labels"][0]["name"] = "Revised fictional title"
+        supplement, supplement_output = self.build(update, "supplemental", full, metadata=self.mdpn_metadata())
+        self.assertEqual(supplement["snapshot"]["changes"], [{"category": "records", "key": "ca_objects:1", "operation": "changed"}])
+        archives = self.archives(full, output) + self.archives(supplement, supplement_output)
+        recovered = self.root / "policy-change-recovered"
+        preservation.recover(archives, supplement["snapshot"]["deposit_id"], recovered)
+        restored = json.loads((recovered / "catalogue-snapshot.json").read_text())
+        self.assertEqual(restored["records"], update["records"])
+        self.assertEqual(restored["schema"], update["schema"])
+        self.assertEqual([f.read_bytes() for f in recovered.rglob("*") if f.is_file() and "originals" in f.parts], [b"unchanged original"])
+
+    def test_catalogue_changes_remain_stale_after_a_packaging_update(self):
+        self.mdpn_profile()
+        self.snapshot["files"] = [self.original("1", b"original A")]
+        full, _ = self.build(metadata=self.mdpn_metadata())
+        baseline = self.root / "baseline.json"
+        baseline.write_bytes(preservation.encoded(full))
+        for category in ("records", "relationships", "definitions", "installation_profile_xml", "external_references", "files"):
+            with self.subTest(category=category):
+                update = copy.deepcopy(self.snapshot)
+                update["schema"]["bagit_profile"]["source_profile_version"] = "1.4.0"
+                if category == "records":
+                    update["records"]["ca_objects"]["1"]["labels"][0]["name"] = "Revised fictional title"
+                elif category == "relationships":
+                    update["relationships"] = {}
+                elif category == "definitions":
+                    update["schema"]["definitions"]["ca_locales"]["2"] = "fr_CA"
+                elif category == "installation_profile_xml":
+                    update["schema"][category] = "<profile><profileName>Revised synthetic profile</profileName></profile>"
+                elif category == "external_references":
+                    update[category] = [{"table": "ca_collections", "id": 99}]
+                else:
+                    update["files"] = [self.original("1", b"original B")]
+                comparison = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})
+                self.assertFalse(comparison["comparisons"][full["snapshot"]["deposit_id"]]["current"])
+                expected = "schema" if category in ("definitions", "installation_profile_xml") else category
+                operation = "removed" if category == "relationships" else "changed"
+                self.assertEqual(comparison["comparisons"][full["snapshot"]["deposit_id"]]["changes"], {expected + "_" + operation: 1})
+                scan, _ = self.build(update, "scan", full)
+                self.assertTrue(scan["changed"])
+
     def test_metadata_only_supplement_still_contains_complete_snapshot(self):
         full, _ = self.build()
         update = copy.deepcopy(self.snapshot)

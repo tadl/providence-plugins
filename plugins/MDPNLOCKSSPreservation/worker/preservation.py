@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.5"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.6"
 
 
 def encoded(value):
@@ -96,6 +96,16 @@ def fingerprint(snapshot):
     return hashlib.sha256(encoded(content)).hexdigest()
 
 
+def catalogue_schema(snapshot):
+    return {k: v for k, v in snapshot["schema"].items() if k != "bagit_profile"}
+
+
+def content_fingerprint(snapshot):
+    # Packaging policy stays in the integrity fingerprint of every saved bag,
+    # but does not establish whether its catalogue content needs another deposit.
+    return fingerprint({**snapshot, "schema": catalogue_schema(snapshot)})
+
+
 def changes(current, previous=None):
     previous = previous or {"records": {}, "relationships": {}, "files": [], "schema": {}}
     result = []
@@ -112,7 +122,7 @@ def changes(current, previous=None):
         operation = "added" if key not in old else "removed" if key not in new else "changed" if any(old[key][k] != new[key][k] for k in ("sha256", "original_filename", "owner")) else None
         if operation:
             result.append({"category": "files", "key": key, "operation": operation})
-    if current["schema"] != previous.get("schema", {}):
+    if catalogue_schema(current) != catalogue_schema(previous):
         result.append({"category": "schema", "key": "metadata-schema", "operation": "changed"})
     return result
 
@@ -123,7 +133,7 @@ def compare_report(request):
     for category in ("records", "relationships"):
         current[category] = current[category] or {}
     current["files"] = [read_original(f) for f in sorted(current["files"], key=lambda f: f["key"])]
-    current_fingerprint = fingerprint(current)
+    current_fingerprint = content_fingerprint(current)
     comparisons = {}
     for job_id, path in request["baselines"].items():
         saved = json.loads(Path(path).read_text(encoding="utf-8"))["snapshot"]
@@ -132,7 +142,7 @@ def compare_report(request):
         counts = Counter(change["category"] + "_" + change["operation"] for change in changes(current, saved))
         if current.get("external_references", []) != saved.get("external_references", []):
             counts["external_references_changed"] += 1
-        comparisons[job_id] = {"current": current_fingerprint == saved["fingerprint"], "changes": dict(counts)}
+        comparisons[job_id] = {"current": current_fingerprint == content_fingerprint(saved), "changes": dict(counts)}
     return {"checked_at": current["captured_at"], "comparisons": comparisons}
 
 
@@ -274,9 +284,10 @@ def build(request):
     snapshot["compared_to_deposit_id"] = parent["snapshot"].get("deposit_id") if parent else None
     snapshot["fingerprint"] = fingerprint(snapshot)
     snapshot["changes"] = changes(snapshot, parent["snapshot"] if parent else None)
+    changed = not parent or content_fingerprint(snapshot) != content_fingerprint(parent["snapshot"])
     if scan:
-        return {"snapshot": snapshot, "parts": [], "changed": not parent or snapshot["fingerprint"] != parent["snapshot"]["fingerprint"]}
-    if job["mode"] == "supplemental" and snapshot["fingerprint"] == parent["snapshot"]["fingerprint"]:
+        return {"snapshot": snapshot, "parts": [], "changed": changed}
+    if job["mode"] == "supplemental" and not changed:
         raise ValueError("There are no changes since the baseline; choose a new full deposit if a fresh copy is required")
     snapshot.update({"format": FORMAT, "deposit_id": job["id"], "mode": job["mode"], "revision": job["revision"],
                      "parent_deposit_id": job.get("parent_id"), "bag_group_identifier": request["bag_group_identifier"]})

@@ -36,9 +36,10 @@ sudo -u www-data -- php support/bin/caUtils mdpn-preservation-refresh-profile --
 ```
 
 New scans and deposits refresh automatically. A missing or invalid cache prevents
-a fresh MDPN comparison; a changed policy can produce a schema difference even
-if catalogue records have not changed. Cache refresh times alone do not affect
-the comparison. History-only reporting does not assert policy freshness.
+a fresh MDPN comparison. Packaging policy, its source/version information and
+cache refresh times do not affect catalogue freshness. The original policy
+remains protected by each saved snapshot's integrity fingerprint. History-only
+reporting does not assert policy freshness.
 
 ## Freshness and coverage
 
@@ -46,6 +47,9 @@ By default the command captures current native catalogue metadata and reads
 each original file for SHA-256. It compares both the latest complete deposit
 and the latest manually confirmed deposit for each preservation root, rather
 than trusting the collection's modification time or an earlier saved scan.
+Catalogue definitions and the Providence installation profile are included in
+this comparison; the BagIt packaging profile is excluded. A packaging-policy
+update alone therefore does not require another deposit.
 Metadata/file descriptors are captured again afterward; concurrent changes
 produce an error, not a clean result. Missing/unreadable originals, a mismatch
 against CA's recorded original MD5, or an inconsistent saved fingerprint also

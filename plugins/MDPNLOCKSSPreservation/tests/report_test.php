@@ -129,7 +129,9 @@ try {
 	$mdpnConfig->refreshProfile();
 	$offlineConfig = new Config($mdpnValues,static function() { throw new RuntimeException('A report must not use the network.'); });
 	$beforeReport = private_tree($root);
-	(new Report($offlineConfig,$readOnly,dirname(__DIR__),$factory))->run($user);
+	$rows = index_rows((new Report($offlineConfig,$readOnly,dirname(__DIR__),$factory))->run($user));
+	check($rows[1]['status'] === 'awaiting_confirmation' && $rows[1]['latest_deposit']['freshness'] === 'current'
+		&& $rows[1]['latest_deposit']['changes_in_deposit_root'] === [],'Changing packaging profiles does not make unchanged catalogue content stale or require another deposit');
 	check(private_tree($root) === $beforeReport,'MDPN reporting reads the cached policy without network access or cache writes');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($reporter,$user) { $reporter->run($user); },'native ACL checks enabled');
