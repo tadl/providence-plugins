@@ -14,7 +14,8 @@ final class Config {
 		$local = is_file($root.'/conf/plugin.local.conf') ? \Configuration::load($root.'/conf/plugin.local.conf') : null;
 		$values = [];
 		foreach (['enable', 'state_directory', 'python_binary', 'organization_code', 'source_organization', 'contact_name', 'contact_email',
-			'part_size_bytes', 'bagit_profile', 'transport', 'destination_id', 'sftp_host', 'sftp_port', 'sftp_directory', 'sftp_host_key_sha256', 'credentials_file'] as $key) {
+			'part_size_bytes', 'bagit_profile', 'transport', 'destination_id', 'sftp_host', 'sftp_port', 'sftp_directory', 'sftp_host_key_sha256', 'credentials_file',
+			'organizational_unit_element','organizational_unit_marker'] as $key) {
 			// Scalar lookup distinguishes an omitted key (false) from a blank override.
 			$v = $local ? $local->getScalar($key) : false;
 			$values[$key] = ($v !== false) ? $v : $shared->getScalar($key);
@@ -23,6 +24,17 @@ final class Config {
 	}
 	public function get(string $key, $default=null) { return $this->values[$key] ?? $default; }
 	public function enabled() : bool { return (bool)$this->get('enable', false); }
+	public function organizationalUnitElement() : string {
+		$element = trim((string)$this->get('organizational_unit_element',''));
+		if ($element !== '' && !preg_match('/^[A-Za-z][A-Za-z0-9_]{0,99}$/D',$element)) { throw new Failure('organizational_unit_element must be a metadata element code without a table prefix.'); }
+		return $element;
+	}
+	public function organizationalUnitMarker() : string {
+		$value = $this->get('organizational_unit_marker','[[organizational_unit]]');
+		$marker = trim((string)($value === false ? '[[organizational_unit]]' : $value));
+		if ($marker === '' || strlen($marker) > 200 || !preg_match('//u',$marker) || preg_match('/[\x00-\x1f\x7f]/',$marker)) { throw new Failure('Configure a nonempty single-line organizational_unit_marker of at most 200 bytes.'); }
+		return $marker;
+	}
 	public function partSizeBytes() : int {
 		$value = $this->get('part_size_bytes');
 		$validType = is_int($value) || (is_string($value) && preg_match('/^[1-9][0-9]*$/D',$value));

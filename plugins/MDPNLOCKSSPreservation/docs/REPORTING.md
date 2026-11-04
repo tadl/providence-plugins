@@ -10,9 +10,11 @@ sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 The ID is illustrative: supply an active backend administrator who has
 `can_preserve_collections`. This is the Providence backend user, separate from
 the Unix account `www-data`; substitute the service account if your server uses
-a different one. The command reports **all non-deleted collections**,
-including non-public collections and nested children, for the configured
-preservation destination. Native ACL checks must remain enabled. Do not pass
+a different one. The command reports **eligible, non-deleted archival collection
+roots**, including non-public collections, for the configured preservation
+destination. Subordinate records remain part of their parent's preserved
+hierarchy and freshness check but have no separate report row. Organizational
+units are excluded. Native ACL checks must remain enabled. Do not pass
 `--disable-item-level-access-control` or run it through `process-task-queue`.
 
 The command needs the plugin enabled and its private ledger initialized. Follow
@@ -56,17 +58,19 @@ running jobs never replace a completed comparison baseline. The latest deposit
 attempt is reported separately; a later failed attempt requires attention even
 when an earlier confirmed snapshot still matches current content.
 
-A child listed in a parent deposit's saved collection membership is covered by
-that deposit. If the entire parent snapshot is unchanged, that is sufficient
-evidence that the child is current. If the parent has changed, the child is
-marked `needs_review`: a sibling's edit does not prove that this particular
-child changed. A separately confirmed current child deposit can establish
-current preservation even when its parent's deposit is outdated.
+Organizational markers and hierarchy placement select eligible roots using the
+same rule as deposit creation and the editor menu. See
+[organizational units and preservation roots](../README.md#organizational-units-and-preservation-roots).
+The summary counts excluded organizational units and subordinate records
+included with their parents. In organizational mode, unparented records outside
+the organizational hierarchy are excluded and reported as warnings.
 
-A child added after the parent's snapshot is not covered by that old deposit.
-A mere external/boundary reference to another collection does not count as
-coverage. Coverage is not inferred by combining several child deposits into
-an undeposited parent hierarchy.
+Adding, removing or changing a child, series, folder or original makes the
+archival root's snapshot out of date. A mere external/boundary reference is not
+preservation coverage. Several historical child deposits cannot establish
+preservation of an undeposited parent. Historical deposits rooted at records
+that are now ineligible are retained and produce warnings, without creating
+individual report rows or supplying the parent's baseline.
 
 When a saved snapshot cannot be read, its historical child membership is
 unknown, including children that may have moved elsewhere. The affected root
@@ -78,18 +82,18 @@ are also reported as warnings. These warnings make the command exit nonzero.
 
 The text table shows the overall status, confirmed-preservation freshness,
 latest-deposit freshness, snapshot date, covering root ID and collection title.
-JSON includes the exact job IDs, UTC timestamps, direct/inherited coverage,
+JSON includes the exact job IDs, UTC timestamps, coverage,
 delivery state, revision, part and supplement counts, change counts in the
 checked deposit root, latest attempt, attention flags and totals by status.
 
 | Overall status | Meaning |
 | --- | --- |
-| `current` | A confirmed direct or parent deposit matches fresh content |
+| `current` | A confirmed deposit matches the eligible root's complete current hierarchy |
 | `out_of_date` | A directly checked collection differs from its latest confirmed or complete deposit |
 | `awaiting_confirmation` | Current content has been uploaded; matching preservation has not been confirmed |
 | `local_only` | A local package matches, without confirmed remote preservation |
 | `never_deposited` | No successful direct or covering deposit exists at this destination |
-| `needs_review` | A covering parent changed, or historical coverage is incomplete |
+| `needs_review` | Historical coverage is incomplete or cannot establish the current root's state |
 | `not_checked` | History was read without a current-content check |
 | `error` | Catalogue, original-file or preservation-state verification failed |
 

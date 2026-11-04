@@ -3,6 +3,7 @@
 namespace MDPNPreservation;
 require_once __DIR__.'/Store.php';
 require_once __DIR__.'/Catalogue.php';
+require_once __DIR__.'/Eligibility.php';
 
 final class Service {
 	// ca_task_queue.handler is VARCHAR(20); keep this separate from the plugin name.
@@ -27,10 +28,14 @@ final class Service {
 	}
 	public function enqueue(int $collection, string $mode, $user, array $input) : array {
 		self::authorize($user,$collection);
+		$this->requireEligible($collection,$user);
 		$this->config->refreshProfile();
 		$metadata = $mode === 'scan' ? [] : $this->config->bagMetadata($input);
 		$job = $this->store->create($collection,$mode,$this->config->target(),(int)$user->getPrimaryKey(),$metadata);
 		$this->queue($job); return $this->store->get($job['id']);
+	}
+	private function requireEligible(int $collection, $user) : void {
+		Eligibility::load($this->config,($this->catalogueFactory)($user),$collection)->requireRoot($collection);
 	}
 	private function queue(array $job) : void {
 		try {
@@ -44,6 +49,7 @@ final class Service {
 	}
 	public function retry(string $id, $user) : void {
 		$job = $this->store->get($id); self::authorize($user,(int)$job['collection_id']);
+		$this->requireEligible((int)$job['collection_id'],$user);
 		$lock = $this->store->lock((int)$job['collection_id']);
 		try {
 			$job = $this->store->get($id);
@@ -73,6 +79,7 @@ final class Service {
 			$this->store->update($id,['status' => 'running','error' => null]);
 			if (!$this->config->enabled() || $job['target'] !== $this->config->target()) { throw new Failure('The preservation configuration changed. Create a new job.'); }
 			$user = $this->freshUser((int)$job['user_id']); self::authorize($user,(int)$job['collection_id']);
+			$this->requireEligible((int)$job['collection_id'],$user);
 			$directory = $this->store->directory($id,true);
 			if (is_file($directory.'/result.json')) {
 				$result = json_decode(file_get_contents($directory.'/result.json'),true,512,JSON_THROW_ON_ERROR);
@@ -98,6 +105,7 @@ final class Service {
 				$after['schema']['bagit_profile'] = $profile;
 				unset($snapshot['captured_at'],$after['captured_at']);
 				if (Store::json($snapshot) !== Store::json($after)) { throw new Failure('Catalogue metadata or original files changed during capture. Create a new job.'); }
+				$this->requireEligible((int)$job['collection_id'],$user);
 				Store::write($directory.'/result.json',$result);
 			}
 			$summary = ['fingerprint' => $result['snapshot']['fingerprint'],'parts' => $result['parts'],

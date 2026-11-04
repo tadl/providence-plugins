@@ -54,6 +54,30 @@ final class ProvidenceCatalogue {
 		if (!$result || $this->db->numErrors()) { throw new Failure('A catalogue preservation query failed.'); }
 		return $result;
 	}
+	public function collectionHierarchy(string $element, string $marker, ?int $collection=null) : array {
+		$rows = []; $next = $collection;
+		do {
+			$q = $next === null ? $this->query('SELECT collection_id,parent_id,deleted FROM ca_collections')
+				: $this->query('SELECT collection_id,parent_id,deleted FROM ca_collections WHERE collection_id=?',[$next]);
+			$next = 0;
+			while ($q->nextRow()) {
+				$row = $q->getRow(); $id = (int)$row['collection_id'];
+				if (isset($rows[$id])) { throw new Failure('A cycle prevents determining the preservation root.'); }
+				$rows[$id] = $row + ['organizational_unit' => false];
+				if ($collection !== null) { $next = (int)$row['parent_id']; }
+			}
+		} while ($next);
+		if ($element !== '') {
+			$q = $this->query('SELECT element_id,datatype FROM ca_metadata_elements WHERE element_code=?',[$element]);
+			if (!$q->nextRow() || (int)$q->get('datatype') !== 1) { throw new Failure('organizational_unit_element must identify an existing Text metadata element.'); }
+			$elementId = (int)$q->get('element_id'); $tableNum = $this->info('ca_collections')['table_num'];
+			foreach (array_chunk(array_keys($rows),500) as $ids) {
+				$q = $this->query('SELECT a.row_id,v.value_longtext1 FROM ca_attributes a JOIN ca_attribute_values v ON v.attribute_id=a.attribute_id WHERE a.table_num=? AND v.element_id=? AND a.row_id IN (?)',[$tableNum,$elementId,$ids]);
+				while ($q->nextRow()) { if (Eligibility::hasMarker((string)$q->get('value_longtext1'),$marker)) { $rows[(int)$q->get('row_id')]['organizational_unit'] = true; } }
+			}
+		}
+		return $rows;
+	}
 	public function rows(string $table, ?string $field=null, array $ids=[]) : array {
 		$info = $this->info($table);
 		if ($field !== null && !in_array($field,$info['fields'],true)) { throw new Failure('Unknown catalogue field.'); }

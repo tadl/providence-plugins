@@ -101,6 +101,18 @@ See the [recovery format](docs/RECOVERY.md) for the detailed structure.
 
 ## Creating and confirming a deposit
 
+Only the top-level archival collection in each branch can be preserved. Its
+complete hierarchy is included in the deposit; subordinate collections, series
+and folders have no separate Preservation menu item or report row. Organizational
+units are grouping records and cannot themselves be deposited.
+
+For catalogues organized beneath institutions, branches or cooperatives,
+configure the [organizational-unit marker](#organizational-units-and-preservation-roots).
+The first unmarked collection below marked organizational ancestors is eligible,
+at any hierarchy depth. Without a configured marker field, native hierarchy
+roots are eligible. These restrictions also apply to administrators, direct
+requests and CLI jobs, and are checked again by the background worker.
+
 An administrator must first install the plugin, initialize its private history
 store and configure processing and delivery. Authorized staff can then use the
 following workflow.
@@ -291,8 +303,10 @@ restored.
 
 Regular review should distinguish **delivery**, **confirmed preservation** and
 **whether the deposited state is still current**. The read-only maintenance
-report covers all non-deleted collections, including inherited coverage from
-parent collection deposits and collections whose preservation is out of date.
+report lists eligible archival collection roots, including those whose
+preservation is out of date. Organizational units and subordinate records are
+excluded from individual rows; changes anywhere in a preserved hierarchy affect
+its root's freshness check.
 A full check reads current metadata and original-file hashes; a history-only
 check does not establish present-day freshness. See
 [maintenance reporting](docs/REPORTING.md) for status definitions and administrator
@@ -479,6 +493,7 @@ values for review by the administrator. These files use Providence's native
 configuration syntax: `#` comments and unquoted scalar values, including names
 containing spaces. Keep SFTP usernames and passwords in the separate JSON
 credentials file.
+The marker setting is quoted to keep its brackets literal.
 
 | Setting | Purpose |
 | --- | --- |
@@ -495,11 +510,53 @@ credentials file.
 | `sftp_host`, `sftp_port`, `sftp_directory` | Receiver DNS hostname or IPv4 address, port (default `22`) and writable path as seen by the SFTP account. IPv6 literals are not supported. |
 | `sftp_host_key_sha256` | Independently verified OpenSSH `SHA256:` fingerprint without trailing `=` padding; not a known_hosts public-key line. |
 | `credentials_file` | Path to the separate private JSON file containing the SFTP username and password. |
+| `organizational_unit_element` | Text metadata element code containing organizational markers, without `ca_collections.`. Blank by default: use native hierarchy roots. Configure `internal_notes` to use the example marker there. |
+| `organizational_unit_marker` | Exact, case-sensitive standalone line identifying an organizational unit; defaults to `[[organizational_unit]]`. Keep the configuration value quoted. |
 
 Invalid part-size settings fail before collection capture or original-file
 staging. A blank part-size override does not mean the default: omit the setting
 to inherit it. Changing the transport, destination ID, host, port or directory
 creates a new destination identity and requires a full deposit.
+
+### Organizational units and preservation roots
+
+An organizational unit groups archival collections by institution, department,
+branch or cooperative. It is not itself a preservation deposit. Enable the
+marker using installation-local configuration:
+
+```ini
+organizational_unit_element = internal_notes
+organizational_unit_marker = "[[organizational_unit]]"
+```
+
+Append `[[organizational_unit]]` on its own line to each organizational record's
+notes, leaving existing notes intact. Mark every organizational ancestor, even
+when several are nested. The marker must be saved on that record itself; it is
+never inherited. Plain text and HTML paragraphs are supported, while mentioning
+the token in ordinary prose does not activate it. A configured field must exist
+and have the Text datatype. A different field code or marker can be configured
+for another institution.
+
+```text
+Example cooperative             marked organizational unit
+  Example library               marked organizational unit
+    Historical photographs      eligible preservation root
+      Series 1                  included with Historical photographs
+        Folder 1                included with Historical photographs
+```
+
+In this mode, unparented archival records outside the marked organizational
+hierarchy are ineligible and produce report warnings. Add new organizational
+units by marking their records; no database IDs or organization names are
+hardcoded in the plugin. Leaving the field setting blank instead selects native
+hierarchy roots, for catalogues without organizational grouping records.
+
+The Preservation menu appears only on eligible roots. A direct URL for an
+ineligible record remains a read-only history page, with a link to its eligible
+archival parent where one exists. Existing deposits, download/roadmap access and
+confirmation records are retained. New deposits, scans and transfer retries are
+blocked for ineligible records, including roots moved after a job was queued.
+Fresh capture is checked again before its result can advance the baseline.
 
 ### Application cache after installation or updates
 
@@ -727,19 +784,19 @@ resetting or retrying it.
 
 ### Operations and development
 
-For a read-only report across all collections, including outdated preservation:
+For a read-only report across eligible collection roots, including outdated preservation:
 
 ```sh
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
 Use an authorized backend administrator ID. This checks fresh metadata and
-original SHA-256 by default, recognizes parent-deposit coverage, and separates
+original SHA-256 across their complete hierarchies by default, and separates
 uploaded content from confirmed preservation. `--history-only` skips current
 content checks; `--format=json --quiet` provides machine-readable output;
 `--fail-on-attention` gives a nonzero exit when action is needed. It creates no
 jobs, bags or ledger writes. See [maintenance reporting](docs/REPORTING.md) for
-status meanings, privacy, inherited coverage, runtime cost and exit behavior.
+status meanings, privacy, organizational hierarchy, runtime cost and exit behavior.
 
 Job directories are stored under `state_directory/jobs/JOB_ID/`. The ledger,
 queue log and locks stay at the state root. Existing jobs directly under the
@@ -786,6 +843,7 @@ Or run the focused suites:
 
 ```sh
 php plugins/MDPNLOCKSSPreservation/tests/core_test.php
+php plugins/MDPNLOCKSSPreservation/tests/eligibility_test.php
 php plugins/MDPNLOCKSSPreservation/tests/profile_test.php
 php plugins/MDPNLOCKSSPreservation/tests/service_test.php
 php plugins/MDPNLOCKSSPreservation/tests/report_test.php

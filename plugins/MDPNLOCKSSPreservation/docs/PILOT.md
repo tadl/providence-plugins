@@ -21,6 +21,11 @@ then arrange a receiving-service pilot with the preservation coordinator.
   role actions deliberately. Check that users can sign back in and that the new
   actions appear. Keep transport local and use synthetic test data.
 - Confirm the collection inspector link and keyboard-accessible form work.
+- Mark nested organizational records in the configured Text element. Confirm
+  that only the first archival collection below them has a Preservation menu
+  item. Direct organizational/subordinate POSTs and CLI requests must fail
+  before queue/history writes. Move a queued root under another collection and
+  confirm the worker rejects it. Reports must use the same eligibility rule.
 - With an authorized archivist, package a collection containing child
   collections, object components, duplicate `idno` values, shared objects and
   representations, non-public originals, multilingual/repeated/container
@@ -47,8 +52,8 @@ then arrange a receiving-service pilot with the preservation coordinator.
 - Run a scan on unchanged content and verify no changes; request a new full
   deposit and verify its recovery chain is independent of earlier deposits.
 - Run `sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=ADMIN_ID`
-  from the installed Providence root and check all non-deleted
-  collections, parent coverage, new/unpreserved children, stale confirmed
+  from the installed Providence root and check eligible archival roots,
+  organizational/subordinate exclusion, new children making their parent stale, stale confirmed
   preservation, uploaded-but-unconfirmed updates, failures and history-only
   results. Verify no preservation files/ledger/jobs change and review both text
   and JSON output. See [reporting](REPORTING.md) for exit flags and I/O costs.

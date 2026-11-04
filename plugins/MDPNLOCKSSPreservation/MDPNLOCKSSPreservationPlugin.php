@@ -22,6 +22,9 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 		if (!$this->config->enabled()) { return $params; }
 		$item = $params['t_item'] ?? null; $request = $this->getRequest();
 		if (!$item || $item->tableName() !== 'ca_collections' || !$item->getPrimaryKey() || !$request || !$request->user->canDoAction('can_preserve_collections')) { return $params; }
+		require_once __DIR__.'/lib/Eligibility.php';
+		try { if (!\MDPNPreservation\Eligibility::forModel($this->config,$item)->classify((int)$item->getPrimaryKey())['eligible']) { return $params; } }
+		catch (\MDPNPreservation\Failure $e) { return $params; }
 		$url = caNavUrl($request,'MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => (int)$item->getPrimaryKey()]);
 		$current = $this->isPreservationPage($request) ? ' class="sf-menu-selected" aria-current="page"' : '';
 		$params['caEditorInspectorAppend'] = ($params['caEditorInspectorAppend'] ?? '').'<h2 id="mdpnPreservationMenuItem" class="mdpn-preservation-inspector"><a'.$current.' href="'.htmlspecialchars($url,ENT_QUOTES,'UTF-8').'">'.htmlspecialchars(_t('Preservation'),ENT_QUOTES,'UTF-8').'</a></h2>';
@@ -55,7 +58,7 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 			'mdpn_preservation_report' => ['Command' => 'mdpn-preservation-report','Options' => ['user-id|u=s' => _t('Backend administrator ID with preservation permission.'),
 				'format|f=s' => _t('text (default) or json; use --quiet for JSON.'),'history-only' => _t('Report recorded history without claiming content is current.'),
 				'fail-on-attention' => _t('Exit nonzero when any collection needs attention.')],
-				'Help' => _t('Read-only status for all non-deleted collections at the configured destination. Checks fresh metadata and SHA-256 by default. Never queues, packages, uploads or changes confirmations.'),
+				'Help' => _t('Read-only status for eligible top-level archival collections at the configured destination. Organizational units and subordinate records are excluded from individual rows. Checks fresh metadata and SHA-256 by default. Never queues, packages, uploads or changes confirmations.'),
 				'ShortHelp' => _t('Report collection preservation status and outdated deposits.')],
 			'mdpn_preservation_init' => ['Command' => 'mdpn-preservation-init','Options' => ['apply' => _t('Initialize private preservation storage.')],
 				'Help' => _t('Initialize the private SQLite ledger in an existing 0700 directory outside the web root. Requires --apply.'),'ShortHelp' => _t('Initialize preservation storage.')],

@@ -6,14 +6,15 @@ require_once __DIR__.'/Service.php';
 final class Tool {
 	private $config;
 	private $root;
-	public function __construct(Config $config, string $root) { $this->config = $config; $this->root = $root; }
+	private $catalogueFactory;
+	public function __construct(Config $config, string $root, ?callable $catalogueFactory=null) { $this->config = $config; $this->root = $root; $this->catalogueFactory = $catalogueFactory; }
 	public function run($command, $settings) : bool {
 		try {
 			if (in_array($command,['mdpn_preservation_report','mdpn-preservation-report'],true)) {
 				require_once __DIR__.'/Report.php'; require_once __CA_MODELS_DIR__.'/ca_users.php';
 				$format = (string)(($settings['format'] ?? '') ?: 'text');
 				if (!in_array($format,['text','json'],true)) { throw new Failure('Report format must be text or json.'); }
-				$report = (new Report($this->config,new Store($this->config,false,true),$this->root))->run(new \ca_users((int)($settings['user-id'] ?? 0)),!empty($settings['history-only']));
+				$report = (new Report($this->config,new Store($this->config,false,true),$this->root,$this->catalogueFactory))->run(new \ca_users((int)($settings['user-id'] ?? 0)),!empty($settings['history-only']));
 				print Report::render($report,$format);
 				return !$report['summary']['errors'] && !$report['warnings'] && (empty($settings['fail-on-attention']) || !$report['summary']['attention_required']);
 			}
@@ -28,7 +29,7 @@ final class Tool {
 				$profile = $this->config->refreshProfile();
 				print Store::json(['refreshed' => true,'source' => $profile['source'],'profile_sha256' => $profile['source_profile_sha256']])."\n"; return true;
 			}
-			$store = new Store($this->config); $service = new Service($this->config,$store,$this->root);
+			$store = new Store($this->config); $service = new Service($this->config,$store,$this->root,$this->catalogueFactory);
 			if (in_array($command,['mdpn_preservation_process_queue','mdpn-preservation-process-queue'],true)) {
 				require_once __CA_LIB_DIR__.'/TaskQueue.php';
 				$queue = new \TaskQueue();

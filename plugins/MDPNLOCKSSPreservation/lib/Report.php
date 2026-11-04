@@ -26,7 +26,16 @@ final class Report {
 			if (!isset($confirmed[$id]) && $job['status'] === 'confirmed') { $confirmed[$id] = $job; }
 		}
 		$candidates = []; $warnings = []; $unknownCoverage = false;
+		foreach ($collections as $id => $collection) {
+			if ($collection['outside_organizational_hierarchy'] && !$collection['parent_id']) {
+				$warnings[] = ['root_collection_id' => $id,'message' => 'An unparented collection is outside the configured organizational hierarchy and is not eligible for preservation.'];
+			}
+		}
 		foreach (array_unique(array_merge(array_keys($latest),array_keys($confirmed))) as $root) {
+			if (isset($collections[$root]) && !$collections[$root]['eligible']) {
+				$warnings[] = ['root_collection_id' => $root,'message' => 'A historical deposit is rooted at an organizational unit or subordinate record. Its history remains available, but it does not establish preservation of an eligible parent collection.'];
+				continue;
+			}
 			$jobs = [];
 			foreach ([$latest[$root] ?? null,$confirmed[$root] ?? null] as $job) { if ($job) { $jobs[$job['id']] = $job; } }
 			$baselines = [];
@@ -72,6 +81,7 @@ final class Report {
 		}
 		$rows = []; $states = []; $attention = 0; $errors = 0;
 		foreach ($collections as $id => $collection) {
+			if (!$collection['eligible']) { continue; }
 			$deposits = []; $preserved = [];
 			foreach ($candidates as $jobId => $candidate) {
 				if (!in_array($id,$candidate['coverage'],true)) { continue; }
@@ -103,19 +113,28 @@ final class Report {
 		return ['format' => 'mdpn-ca-preservation-report-1','started_at' => $started,'finished_at' => gmdate('c'),
 			'destination' => ['transport' => $this->config->get('transport','local'),'id' => $this->config->get('destination_id')],
 			'freshness_check' => $historyOnly ? 'history_only' : 'metadata_and_sha256','summary' => ['collections' => count($rows),'attention_required' => $attention,
-				'errors' => $errors,'states' => $states],'warnings' => $warnings,'collections' => $rows];
+				'errors' => $errors,'states' => $states,'organizational_units' => count(array_filter($collections,static function($row) { return $row['organizational_unit']; })),
+				'included_descendants' => count(array_filter($collections,static function($row) { return !$row['organizational_unit'] && !$row['eligible'] && !$row['outside_organizational_hierarchy']; })),
+				'outside_organizational_hierarchy' => count(array_filter($collections,static function($row) { return $row['outside_organizational_hierarchy']; }))],
+			'warnings' => $warnings,'collections' => $rows];
 	}
 	private function collections($user) : array {
 		$c = ($this->catalogueFactory)($user); $c->begin();
 		try {
-			$rows = $c->rows('ca_collections'); $labels = []; $info = $c->info('ca_collections');
+			$rows = $c->collectionHierarchy($this->config->organizationalUnitElement(),$this->config->organizationalUnitMarker());
+			$eligibility = new Eligibility($rows,$this->config->organizationalUnitElement() !== ''); $result = [];
+			foreach ($rows as $id => $row) {
+				if (!empty($row['deleted'])) { continue; }
+				$result[(int)$id] = ['parent_id' => (int)($row['parent_id'] ?? 0),'label' => 'Collection #'.$id] + $eligibility->classify((int)$id);
+			}
+			$labels = []; $info = $c->info('ca_collections');
 			if ($info['label_table']) {
-				foreach ($c->rows($info['label_table'],'collection_id',array_keys($rows)) as $label) {
+				$ids = array_keys(array_filter($result,static function($row) { return $row['eligible']; }));
+				foreach ($c->rows($info['label_table'],'collection_id',$ids) as $label) {
 					if (!isset($labels[$label['collection_id']]) || !empty($label['is_preferred'])) { $labels[$label['collection_id']] = (string)($label['name'] ?? ''); }
 				}
 			}
-			$result = [];
-			foreach ($rows as $id => $row) { if (empty($row['deleted'])) { $result[(int)$id] = ['parent_id' => (int)($row['parent_id'] ?? 0),'label' => $labels[$id] ?? 'Collection #'.$id]; } }
+			foreach ($labels as $id => $label) { $result[(int)$id]['label'] = $label; }
 			ksort($result,SORT_NUMERIC); return $result;
 		} finally { $c->finish(); }
 	}
@@ -177,6 +196,7 @@ final class Report {
 			foreach (array_unique(array_filter([$row['preservation']['error'] ?? null,$row['latest_deposit']['error'] ?? null])) as $error) { $out .= '         '.$error."\n"; }
 		}
 		$out .= 'Collections: '.$report['summary']['collections'].'; attention required: '.$report['summary']['attention_required'].'; errors: '.$report['summary']['errors']."\n";
+		$out .= 'Organizational units excluded: '.$report['summary']['organizational_units'].'; subordinate records included with parents: '.$report['summary']['included_descendants']."\n";
 		foreach ($report['warnings'] as $warning) { $out .= 'Warning for root #'.$warning['root_collection_id'].': '.$warning['message']."\n"; }
 		return $out;
 	}

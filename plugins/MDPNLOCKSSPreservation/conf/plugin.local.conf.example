@@ -19,6 +19,10 @@ part_size_bytes = 50000000000
 bagit_profile = generic
 transport = local
 destination_id = local-testing
+# If organizational records sit above real archival collections, enable this:
+# organizational_unit_element = internal_notes
+# Put the exact marker on its own line in each organizational record's notes.
+organizational_unit_marker = "[[organizational_unit]]"
 # After a local pilot, configure a stable new destination and verified host key.
 # transport = sftp
 # destination_id = example-lockss

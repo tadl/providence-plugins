@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.4"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.5"
 
 
 def encoded(value):

@@ -5,6 +5,7 @@ class SyntheticCatalogue {
 	public $denied = [];
 	public $finished = 0;
 	public $generatedPreviews = [];
+	public $organizationalNotes = [];
 	private $definitions;
 	public function __construct() {
 		$this->data = [
@@ -49,6 +50,11 @@ class SyntheticCatalogue {
 		ksort($result); return $result;
 	}
 	public function begin() : void {}
+	public function collectionHierarchy(string $element, string $marker, ?int $collection=null) : array {
+		$rows = $this->data['ca_collections'];
+		foreach ($rows as $id => &$row) { $row['organizational_unit'] = $element !== '' && \MDPNPreservation\Eligibility::hasMarker($this->organizationalNotes[$id] ?? '',$marker); } unset($row);
+		return $rows;
+	}
 	public function finish() : void { $this->finished++; }
 	public function hierarchyType() : ?int { return 5; }
 	public function profile() : string { return '<profile><profileName>Synthetic</profileName></profile>'; }

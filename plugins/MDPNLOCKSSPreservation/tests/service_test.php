@@ -8,6 +8,7 @@ define('__CA_LIB_DIR__',__DIR__.'/stubs/lib');
 define('__CA_ACL_READONLY_ACCESS__',1);
 define('pInteger',1); define('pString',2);
 require_once __CA_MODELS_DIR__.'/ca_users.php';
+require_once __CA_LIB_DIR__.'/TaskQueue.php';
 
 function check($condition,$message) { if (!$condition) { throw new RuntimeException($message); } }
 function fails($call,$message) {
@@ -119,6 +120,10 @@ try {
 	check(strlen(\MDPNPreservation\Service::QUEUE_HANDLER) <= (int)$field[1],'The internal handler must fit the native task queue column without a schema change');
 	check(is_file(__DIR__.'/../queue/'.\MDPNPreservation\Service::QUEUE_HANDLER.'.php'),'The native handler identifier must resolve to its plugin file');
 	unset($GLOBALS['AUTH_CURRENT_USER_ID']);
+	foreach (['full','supplemental','scan'] as $mode) {
+		fails(function() use ($service,$user,$mode) { $service->enqueue(2,$mode,$user,[]); },'Only top-level archival collections');
+	}
+	check(!$store->history(2) && !TaskQueue::$jobs,'Subordinate requests fail before history or queue writes');
 	$submittedDescription = str_repeat('Synthetic transfer description. ',180).'Complete transfer ending.';
 	$first = $service->enqueue(1,'full',$user,['description' => $submittedDescription]);
 	check($first['status'] === 'queued' && count(TaskQueue::$jobs) === 1,'Job must persist before queue dispatch');
@@ -147,10 +152,22 @@ try {
 	check($store->get($first['id'])['status'] === 'confirmed','Preservation requires separate explicit confirmation');
 	$store->update($first['id'],['status' => 'failed']); $service->retry($first['id'],$user);
 	check($service->run($first['id'])['status'] === 'built','Retry reuses immutable retained package');
+	$moved = $service->enqueue(99,'full',$user,[]); $catalogue->data['ca_collections'][99]['parent_id'] = 1;
+	check($service->run($moved['id'])['status'] === 'failed' && !is_file($store->directory($moved['id']).'/request.json'),'Worker eligibility is rechecked after a root is moved beneath another collection');
+	$catalogue->data['ca_collections'][99]['parent_id'] = null;
+	$store->update($first['id'],['status' => 'failed']); $catalogue->data['ca_collections'][1]['parent_id'] = 99;
+	fails(function() use ($service,$first,$user) { $service->retry($first['id'],$user); },'Only top-level archival collections');
+	check($store->get($first['id'])['status'] === 'failed','Ineligible retries do not mutate their recorded status');
+	$catalogue->data['ca_collections'][1]['parent_id'] = null; $service->retry($first['id'],$user); $service->run($first['id']);
 	$queued = $service->enqueue(1,'full',$user,[]); ca_users::$deny = true;
 	check($service->run($queued['id'])['status'] === 'failed','Worker must recheck requester permission'); ca_users::$deny = false;
 	$capturedInvalid = false;
-	$invalidService = new \MDPNPreservation\Service(new \MDPNPreservation\Config(array_merge($values,['part_size_bytes' => null])),$store,dirname(__DIR__),function($user) use (&$capturedInvalid) { $capturedInvalid = true; throw new RuntimeException('Invalid limits must be rejected before capture.'); });
+	$invalidCatalogue = new class extends RuntimeCatalogue {
+		public $onCapture;
+		public function rows(string $table, ?string $field=null, array $ids=[]) : array { ($this->onCapture)(); throw new RuntimeException('Invalid limits must be rejected before capture.'); }
+	};
+	$invalidCatalogue->onCapture = function() use (&$capturedInvalid) { $capturedInvalid = true; };
+	$invalidService = new \MDPNPreservation\Service(new \MDPNPreservation\Config(array_merge($values,['part_size_bytes' => null])),$store,dirname(__DIR__),function($user) use ($invalidCatalogue) { return $invalidCatalogue; });
 	$invalidJob = $invalidService->enqueue(1,'full',$user,[]);
 	check($invalidService->run($invalidJob['id'])['status'] === 'failed' && !$capturedInvalid,'An invalid part limit must fail before catalogue capture and original-file staging');
 	check(strpos($store->get($invalidJob['id'])['error'],'positive whole number of bytes') !== false && !is_file($store->directory($invalidJob['id']).'/request.json'),'Invalid-limit failures must be actionable and write no metadata request');
@@ -195,8 +212,18 @@ try {
 	$request->module = 'editor/collections';
 	check($plugin->hookRenderWidgets(['existing' => []]) === ['existing' => []],'Other editor routes must not receive the preservation sidebar');
 	$request->module = 'MDPNLOCKSSPreservation';
+	Configuration::$values = array_merge($values,['organizational_unit_element' => 'internal_notes']);
+	ca_collections::$parents = [1 => 100,2 => 1]; ca_collections::$notes = [100 => '[[organizational_unit]]'];
+	$policyPlugin = new MDPNLOCKSSPreservationPlugin(dirname(__DIR__));
+	check(isset($policyPlugin->hookAppendToEditorInspector(['t_item' => new ca_collections(1)])['caEditorInspectorAppend']),'Eligible collection below an organizational unit retains Preservation');
+	check(!isset($policyPlugin->hookAppendToEditorInspector(['t_item' => new ca_collections(2)])['caEditorInspectorAppend']),'Subordinate records have no Preservation menu item');
+	check(!isset($policyPlugin->hookAppendToEditorInspector(['t_item' => new ca_collections(100)])['caEditorInspectorAppend']),'Organizational units have no Preservation menu item');
+	$request->parameters = ['collection_id' => 2]; $readOnlyController = new PreservationController($request,$response);
+	ob_start(); $readOnlyController->Index(); $childHtml = ob_get_clean();
+	check(strpos($childHtml,'mdpnCreateDeposit') === false && strpos($childHtml,'mdpnScanCollection') === false && strpos($childHtml,'View preservation for the archival collection') !== false,'Direct subordinate pages show the parent link and no preservation forms');
+	Configuration::$values = $values; ca_collections::$parents = [2 => 1]; ca_collections::$notes = []; $request->parameters = ['collection_id' => 1];
 	require_once __DIR__.'/../lib/Tool.php';
-	$tool = new \MDPNPreservation\Tool($config,dirname(__DIR__));
+	$tool = new \MDPNPreservation\Tool($config,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
 	ob_start(); $created = $tool->run('mdpn_preservation_create',['apply' => '1','collection-id' => '1','user-id' => '1','mode' => '',
 		'contact-name' => '','contact-email' => '','description' => '']); $cli_output = ob_get_clean();
 	check($created,'CLI defaults must survive empty strings from native caUtils');

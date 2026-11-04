@@ -3,6 +3,7 @@
 $escape = static function($value) { return htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); };
 $id = (int)$this->getVar('collection_id'); $history = $this->getVar('history'); $config = $this->getVar('preservation_config');
 $baseline = $this->getVar('baseline'); $error = $this->getVar('preservation_error'); $active = false;
+$eligibility = $this->getVar('preservation_eligibility');
 foreach ($history as $job) { if (in_array($job['status'],['queued','running'],true)) { $active = true; } }
 $form = function($action,$name) use ($id) {
 	return caFormTag($this->request,$action,$name,'MDPNLOCKSSPreservation/Preservation','post','multipart/form-data','_top',['disableUnsavedChangesWarning' => true]).'<input type="hidden" name="collection_id" value="'.$id.'">';
@@ -12,6 +13,12 @@ $form = function($action,$name) use ($id) {
 <h1><?= $escape(_t('Preservation: %1',$this->getVar('collection_label'))) ?></h1>
 <p><?= caNavLink($this->request,_t('Return to collection'),'','editor/collections','CollectionEditor','Edit',['collection_id' => $id]) ?> · <?= caNavLink($this->request,_t('Refresh status'),'','MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => $id]) ?></p>
 <?php if ($error): ?><p role="alert"><?= $escape($error) ?></p><?php endif; ?>
+<?php if (!$eligibility['eligible']): ?>
+<p role="status"><?= $escape($eligibility['organizational_unit'] ? _t('Organizational units group archival collections and cannot be preserved directly.') : ($eligibility['outside_organizational_hierarchy'] ? _t('Place this collection below a marked organizational unit before preservation.') : _t('This subordinate record is preserved with its top-level archival collection.'))) ?>
+<?php if ($eligibility['root_collection_id']): ?>
+<?= caNavLink($this->request,_t('View preservation for the archival collection'),'','MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => $eligibility['root_collection_id']]) ?>
+<?php endif; ?></p>
+<?php endif; ?>
 <p><?= $escape(_t('Includes the complete collection hierarchy, all metadata and original files, including non-public content. Upload to staging and confirmation of LOCKSS preservation are recorded separately.')) ?></p>
 <?php if ($config->get('transport','local') === 'local'): ?>
 <p><strong><?= $escape(_t('Local testing: packages are created on this server. No files are sent to a preservation service.')) ?></strong></p>
@@ -26,7 +33,7 @@ $form = function($action,$name) use ($id) {
 <p><?= $escape(_t('Latest scan: %1. %2 change entries. Scans describe the captured state; run another scan after editing.',$scan['result']['captured_at'],$scan['result']['change_count'])) ?></p>
 <?php endif; ?>
 <?php break; endforeach; ?>
-<?php if (!$error && !$active): ?>
+<?php if (!$error && !$active && $eligibility['eligible']): ?>
 <h2><?= $escape(_t('Create a deposit')) ?></h2>
 <?= $form('Submit','mdpnCreateDeposit') ?>
 <?php foreach (['source_organization' => _t('Source organization'),'contact_name' => _t('Contact name'),'contact_email' => _t('Contact email')] as $field => $label): ?>
@@ -55,7 +62,7 @@ $form = function($action,$name) use ($id) {
 <?php endforeach; ?>
 <details><summary><?= $escape(_t('Changes (first 200; complete list is in each bag)')) ?></summary><ul><?php foreach ($job['result']['changes'] as $change): ?><li><?= $escape($change['category'].' · '.$change['key'].' · '.$change['operation']) ?></li><?php endforeach; ?></ul></details>
 <?php endif; ?>
-<?php if ($job['status'] === 'failed' && !empty($job['result']['parts']) && !$active): ?>
+<?php if ($eligibility['eligible'] && $job['status'] === 'failed' && !empty($job['result']['parts']) && !$active): ?>
 <?= $form('Retry','mdpnRetry'.$job['id']) ?><input type="hidden" name="job_id" value="<?= $escape($job['id']) ?>"><p><button type="submit"><?= $escape(_t('Retry transfer of retained package')) ?></button> <?= $escape(_t('(Available only if packaging completed.)')) ?></p></form>
 <?php endif; ?>
 <?php if ($job['status'] === 'uploaded' && $this->request->user->canDoAction('can_confirm_preservation')): ?>

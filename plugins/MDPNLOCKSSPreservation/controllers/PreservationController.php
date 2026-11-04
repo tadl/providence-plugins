@@ -47,6 +47,10 @@ class PreservationController extends ActionController {
 			$history = $store->history($id); $baseline = $store->baseline($id,$this->preservation_config->target());
 		} catch (Throwable $e) { $error = $e instanceof \MDPNPreservation\Failure ? $e->getMessage() : _t('Preservation storage is unavailable. Ask an administrator to check configuration.'); }
 		$collection = new ca_collections($id);
+		$eligibility = ['eligible' => false,'organizational_unit' => false,'root_collection_id' => null,'outside_organizational_hierarchy' => false];
+		try { $eligibility = \MDPNPreservation\Eligibility::forModel($this->preservation_config,$collection)->classify($id); }
+		catch (\MDPNPreservation\Failure $e) { $error = $error ?: $e->getMessage(); }
+		$this->view->setVar('preservation_eligibility',$eligibility);
 		$this->view->setVar('collection_id',$id); $this->view->setVar('collection_label',$collection->getLabelForDisplay());
 		$this->view->setVar('default_description',\MDPNPreservation\Config::defaultDescription($collection));
 		$this->view->setVar('history',$history); $this->view->setVar('baseline',$baseline); $this->view->setVar('preservation_error',$error);
