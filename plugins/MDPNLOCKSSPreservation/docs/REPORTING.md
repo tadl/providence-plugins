@@ -26,6 +26,18 @@ metadata travels to the comparison subprocess through stdin, never a temporary
 export file. Output goes to stdout; keep redirected reports private because
 they contain collection titles and preservation history.
 
+In MDPN mode, freshness checks read the last validated policy cache without
+downloading settings or writing cache files. Refresh it separately when needed:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-refresh-profile --apply
+```
+
+New scans and deposits refresh automatically. A missing or invalid cache prevents
+a fresh MDPN comparison; a changed policy can produce a schema difference even
+if catalogue records have not changed. Cache refresh times alone do not affect
+the comparison. History-only reporting does not assert policy freshness.
+
 ## Freshness and coverage
 
 By default the command captures current native catalogue metadata and reads

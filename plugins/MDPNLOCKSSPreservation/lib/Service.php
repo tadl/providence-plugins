@@ -27,6 +27,7 @@ final class Service {
 	}
 	public function enqueue(int $collection, string $mode, $user, array $input) : array {
 		self::authorize($user,$collection);
+		$this->config->refreshProfile();
 		$metadata = $mode === 'scan' ? [] : $this->config->bagMetadata($input);
 		$job = $this->store->create($collection,$mode,$this->config->target(),(int)$user->getPrimaryKey(),$metadata);
 		$this->queue($job); return $this->store->get($job['id']);
@@ -80,9 +81,10 @@ final class Service {
 				}
 			} else {
 				$partSizeBytes = $job['mode'] === 'scan' ? 0 : $this->config->partSizeBytes();
+				$profile = $this->config->refreshProfile();
 				$collector = new Collector(($this->catalogueFactory)($user));
 				$snapshot = $collector->capture((int)$job['collection_id'],$this->store->repositoryId());
-				$snapshot['schema']['bagit_profile'] = $this->config->profile();
+				$snapshot['schema']['bagit_profile'] = $profile;
 				$baseline = $job['parent_id'] ? $this->store->get($job['parent_id']) : $this->store->baseline((int)$job['collection_id'],$job['target']);
 				$parent = $baseline ? json_decode(file_get_contents($this->store->directory($baseline['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR) : null;
 				$code = (string)$this->config->get('organization_code');
@@ -93,7 +95,7 @@ final class Service {
 				$result = $this->worker($directory);
 				$user = $this->freshUser((int)$job['user_id']); self::authorize($user,(int)$job['collection_id']);
 				$after = (new Collector(($this->catalogueFactory)($user)))->capture((int)$job['collection_id'],$this->store->repositoryId());
-				$after['schema']['bagit_profile'] = $this->config->profile();
+				$after['schema']['bagit_profile'] = $profile;
 				unset($snapshot['captured_at'],$after['captured_at']);
 				if (Store::json($snapshot) !== Store::json($after)) { throw new Failure('Catalogue metadata or original files changed during capture. Create a new job.'); }
 				Store::write($directory.'/result.json',$result);

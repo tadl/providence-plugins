@@ -135,13 +135,28 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(sorted(originals), [b"a" * 900_000, b"b" * 900_000, b"unchanged original"])
 
     def mdpn_profile(self):
-        profile = json.loads((Path(__file__).parents[1] / "profiles/mdpn.json").read_text())
+        profile = json.loads((Path(__file__).parent / "fixtures/mdpn-profile.json").read_text())
         self.snapshot["schema"]["bagit_profile"] = profile
         return profile
 
     def mdpn_metadata(self):
-        return {"Source-Organization": "Traverse Area District Library", "Contact-Name": "Example Staff",
+        return {"Source-Organization": "Example Member Archive", "Contact-Name": "Example Staff",
                 "Contact-Email": "preservation@example.org"}
+
+    def test_canonical_optional_defaults_and_value_restrictions(self):
+        profile = self.mdpn_profile()
+        profile["bag_info_order"].append("Transfer-Policy")
+        profile["bag_info_defaults"] = {"Transfer-Policy": "Example policy"}
+        profile["tag_values"] = {"Transfer-Policy": ["Example policy"], "Contact-Name": ["Example Staff"]}
+        result, output = self.build(metadata=self.mdpn_metadata())
+        with tarfile.open(self.archives(result, output)[0]) as archive:
+            tags = archive.extractfile(result["parts"][0]["bag_id"] + "/bag-info.txt").read().decode()
+        self.assertIn("Transfer-Policy: Example policy\n", tags)
+        self.assert_independently_valid(self.archives(result, output)[0])
+        invalid = self.mdpn_metadata()
+        invalid["Contact-Name"] = "Unsupported contact"
+        with self.assertRaisesRegex(ValueError, "tag value is not allowed"):
+            self.build(metadata=invalid)
 
     def test_mdpn_bag_info_matches_dart3_profile_layout_with_or_without_description(self):
         reference = json.loads((Path(__file__).parent / "fixtures/dart3-mdpn.json").read_text())

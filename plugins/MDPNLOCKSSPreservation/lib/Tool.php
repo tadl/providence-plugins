@@ -20,7 +20,13 @@ final class Tool {
 			if (empty($settings['apply'])) { throw new Failure('This operation requires --apply; no action was taken.'); }
 			if ($command === 'mdpn_preservation_init' || $command === 'mdpn-preservation-init') {
 				$store = new Store($this->config,true);
+				$this->config->refreshProfile();
 				print Store::json(['initialized' => true,'repository_id' => $store->repositoryId()])."\n"; return true;
+			}
+			if (in_array($command,['mdpn_preservation_refresh_profile','mdpn-preservation-refresh-profile'],true)) {
+				if ($this->config->get('bagit_profile','generic') !== 'mdpn') { throw new Failure('Only the MDPN profile has canonical remote settings.'); }
+				$profile = $this->config->refreshProfile();
+				print Store::json(['refreshed' => true,'source' => $profile['source'],'profile_sha256' => $profile['source_profile_sha256']])."\n"; return true;
 			}
 			$store = new Store($this->config); $service = new Service($this->config,$store,$this->root);
 			if (in_array($command,['mdpn_preservation_process_queue','mdpn-preservation-process-queue'],true)) {

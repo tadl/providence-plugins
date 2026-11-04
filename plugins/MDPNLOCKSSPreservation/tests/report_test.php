@@ -113,6 +113,13 @@ try {
 	$nonadmin = new class(1) extends ca_users { public function canDoAction($action) { return $action !== 'is_administrator'; } };
 	fails(function() use ($reporter,$nonadmin) { $reporter->run($nonadmin); },'active backend administrator');
 	chmod($root,0500); $readonlyDirectory = new Store($config,false,true); check($readonlyDirectory->repositoryId() === $store->repositoryId(),'Reporting can use a private non-writable state directory'); chmod($root,0700);
+	$mdpnValues = array_merge($values,['bagit_profile' => 'mdpn']);
+	$mdpnConfig = new Config($mdpnValues,static function() { return file_get_contents(__DIR__.'/fixtures/mdpn-dart-settings.json'); });
+	$mdpnConfig->refreshProfile();
+	$offlineConfig = new Config($mdpnValues,static function() { throw new RuntimeException('A report must not use the network.'); });
+	$beforeReport = private_tree($root);
+	(new Report($offlineConfig,$readOnly,dirname(__DIR__),$factory))->run($user);
+	check(private_tree($root) === $beforeReport,'MDPN reporting reads the cached policy without network access or cache writes');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($reporter,$user) { $reporter->run($user); },'native ACL checks enabled');
 	print "Preservation maintenance report, inherited coverage, freshness and read-only checks passed.\n";

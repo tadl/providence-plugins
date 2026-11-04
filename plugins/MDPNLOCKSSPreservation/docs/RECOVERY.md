@@ -30,6 +30,10 @@ groups, search forms and metadata dictionary. User logins/passwords and server
 configuration are not exported. Raw definition rows retain the original IDs as
 well as codes and labels. The snapshot records Providence version/schema
 revision, the export table/foreign-key descriptions and packaging profile.
+For deposits created with canonical MDPN settings, that profile includes the
+normalized rules, source URL and fingerprint of the imported policy. Recovery
+uses those saved rules; it never downloads current MDPN settings or requires
+the running server's settings cache.
 
 ## Read the catalogue snapshot
 

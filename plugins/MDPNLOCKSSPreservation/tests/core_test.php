@@ -77,10 +77,11 @@ try {
 	$narrative->fields = []; check(Config::defaultDescription($narrative) === 'Fictional collection','Sites without those narrative fields still receive the title');
 	$outside = ['organization_code' => 'EXAMPLE','source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org'];
 	check((new Config($outside))->bagMetadata([])['Source-Organization'] === 'Example Archive','The default generic profile accepts an institution outside the MDPN membership list');
-	$mdpn = new Config(array_merge($outside,['bagit_profile' => 'mdpn']));
+	$mdpn = new Config(array_merge($outside,['bagit_profile' => 'mdpn','state_directory' => $directory]),static function() { return file_get_contents(__DIR__.'/fixtures/mdpn-dart-settings.json'); });
+	$mdpn->refreshProfile();
 	fails(function() use ($mdpn) { $mdpn->bagMetadata([]); },'permitted organization');
 	$member = $mdpn->profile()['source_organizations'][0];
-	check((new Config(array_merge($outside,['bagit_profile' => 'mdpn','source_organization' => $member])))->bagMetadata([])['Source-Organization'] === $member,'MDPN configuration accepts the selected member institution rather than requiring TADL');
+	check((new Config(array_merge($outside,['bagit_profile' => 'mdpn','source_organization' => $member,'state_directory' => $directory])))->bagMetadata([])['Source-Organization'] === $member,'MDPN configuration accepts the selected member institution rather than requiring TADL');
 	fails(function() { (new Config(['bagit_profile' => 'unknown']))->profile(); },'mdpn or generic');
 	foreach ([
 		['application/pdf','image/jpeg','6','','document_page'],

@@ -312,6 +312,9 @@ delivery. It supplies no institution identity or receiving-service credentials.
 - A 64-bit Linux/macOS host, PHP 8.2+ CLI and web runtimes, PDO SQLite, JSON, DOM,
   hash and the normal Providence dependencies. `proc_open` must be available.
 - Python 3.9+ with its standard library; no pip packages are required.
+- MDPN mode additionally requires PHP cURL in both web and CLI runtimes, a
+  working system TLS certificate store and outbound HTTPS to
+  `raw.githubusercontent.com`. Generic mode requires no MDPN network access.
 - Local readable originals for every scoped representation and attached file.
   Network-mounted media is acceptable when mounted as normal readable files.
   External URLs, missing originals and derivative substitutes stop the job.
@@ -340,7 +343,7 @@ receiving service:
 | Profile | Intended use and requirements |
 | --- | --- |
 | `generic` (default) | A receiver that agrees to accept this plugin's BagIt 1.0 tar packages, SHA-256 manifests and metadata layout. Any institution name is accepted. This does not configure a LOCKSS network, an ingest service or AU definitions. |
-| `mdpn` | An MDPN deposit using the bundled organization allowlist and DART3 metadata layout. Select your own institution's exact approved name from `profiles/mdpn.json`; confirm it and the endpoint with MDPN. |
+| `mdpn` | An MDPN deposit using organization names and packaging rules fetched from the [canonical MDPN settings](https://raw.githubusercontent.com/MiDPN/MDPN-Config/refs/heads/main/MDPN-DART-Settings.json). Select your own institution's exact approved name; confirm it and the endpoint with MDPN. |
 
 `organization_code` is your institution's compact package-name prefix in either
 mode: two to twelve uppercase letters or digits, without spaces or punctuation.
@@ -358,7 +361,7 @@ source_organization = REPLACE_WITH_YOUR_APPROVED_MDPN_MEMBER_NAME
 
 Replace both illustrative identity values. TADL's name and organization code
 are not defaults for other MDPN members. An unlisted organization name is
-rejected in MDPN mode; arrange an approved profile update with the coordinator.
+rejected in MDPN mode; ask the coordinator to update the canonical settings.
 
 `bagit_profile` controls packaging rules. `destination_id` is a local name for
 tracking delivery history, not a provider selector. Host, directory, credentials
@@ -409,6 +412,9 @@ is separate from the Unix account selected by sudo.
    ```sh
    sudo -u www-data -- php support/bin/caUtils mdpn-preservation-init --apply
    ```
+
+   In MDPN mode this also downloads and validates the canonical packaging
+   settings. Resolve any network or compatibility error before creating a job.
 
 7. Grant `can_preserve_collections` to the intended backend role. Grant
    `can_confirm_preservation` as well to people who will verify node ingestion.
@@ -605,6 +611,50 @@ and `disposition: regenerate`. Capture stops if the source original is absent.
 Named uploads, non-positional attachments and unrecognized multifiles remain
 preserved. Custom multifile importers require a local review of these rules.
 
+### Canonical MDPN settings
+
+MDPN mode reads the named MDPN profile in
+[MDPN-DART-Settings.json](https://raw.githubusercontent.com/MiDPN/MDPN-Config/refs/heads/main/MDPN-DART-Settings.json).
+Organization names, tag ordering, required fields, supported defaults and value
+restrictions, the profile identifier and packaging constraints come from that
+source. DART accounts, storage services, contact overrides and other operator
+values are not imported. The plugin contains no bundled live MDPN profile;
+synthetic test fixtures are used only by the test suites.
+
+Initialization, new scan/deposit submissions and fresh queued captures download
+and validate the current settings. A capture pins one imported policy for its
+entire operation. The validated cache is
+`state_directory/mdpn-settings-cache.json`, outside the application, mode `0600`.
+The cache records its source and refresh time. The normalized policy and a
+SHA-256 fingerprint of the imported policy are saved in each bag's catalogue
+snapshot, so later upstream edits do not change an existing deposit.
+
+Reports read the cache without network access or writes. Retained-package
+retries and offline recovery use the original archives and recorded policy,
+without fetching current settings. To refresh before a report, or after updating
+an installation that previously used a bundled profile, run from Providence:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-refresh-profile --apply
+```
+
+This refreshes settings only; it creates no preservation job or bag. Clearing
+Providence's application cache does not refresh MDPN settings. Generic mode
+does not download or cache MDPN settings.
+
+New work requires a successful download: an outage or invalid response leaves
+the previous cache intact but does not silently reuse stale policy for a new
+capture. HTTPS verification is mandatory, redirects are not followed, and the
+download has a 5-second connection limit, a 15-second total limit and a 1 MiB
+size limit. Unsupported upstream requirements stop new work with an error;
+changes such as a different checksum algorithm or required grouping convention
+may still need a plugin update. Updates that move `External-Identifier` away
+from line 11 also require a compatibility review of MDPN's receiving workflow.
+
+Policy changes can affect the snapshot fingerprint even when catalogue records
+are unchanged. Refresh times alone do not affect it. Review a changed receiving
+policy with MDPN and create a new full deposit when adopting a changed format.
+
 ### Other LOCKSS deployments
 
 Set the organization code/contact defaults, a stable destination ID, verified
@@ -633,13 +683,7 @@ value, not a universal LOCKSS requirement. Arrange staging processing, AU
 creation, crawls and preservation confirmation with its operators. The plugin
 does not discover those services or poll LOCKSS nodes for acceptance.
 
-`profiles/mdpn.json` records the required fields and organization allowlist from
-the supplied MDPN DART settings. It explicitly selects BagIt 1.0, correcting the
-settings export's conflicting 0.97 version-tag default. Treat MDPN policy changes
-as reviewed source/configuration changes; the worker never downloads profiles
-at runtime. Each snapshot records the actual profile requirements used.
-
-#### DART3 metadata compatibility
+### DART3 metadata compatibility
 
 New MDPN bags follow DART3's output for the supplied MDPN profile: preserve the
 profile's field order, retain empty optional fields, then append the automatic
@@ -659,9 +703,10 @@ and remain readable by the recovery tool.
 
 The profile identifier is copied from MDPN's DART settings, which currently
 retain the legacy APTrust `btr-v0.1.json` URL. It is an identifier, not a runtime
-download or a substitute for the actual profile saved in the snapshot. Confirm
-any replacement identifier and changes to grouping/counting conventions with
-MDPN before changing that contract.
+download target or a substitute for the actual profile saved in the snapshot.
+The canonical MDPN settings file is fetched instead. The worker selects the
+supported BagIt 1.0 declaration, even if the DART tag's legacy default is 0.97;
+the upstream profile must explicitly accept 1.0.
 
 Reference behavior was checked against DART3's `dart-runner` v1.0.6:
 [tag ordering and blank fields](https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagit_profile.go#L421-L430),
@@ -741,6 +786,7 @@ Or run the focused suites:
 
 ```sh
 php plugins/MDPNLOCKSSPreservation/tests/core_test.php
+php plugins/MDPNLOCKSSPreservation/tests/profile_test.php
 php plugins/MDPNLOCKSSPreservation/tests/service_test.php
 php plugins/MDPNLOCKSSPreservation/tests/report_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php

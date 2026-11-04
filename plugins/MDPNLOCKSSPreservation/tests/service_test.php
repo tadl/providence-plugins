@@ -208,6 +208,29 @@ try {
 	ob_start(); $processed = $tool->run('mdpn-preservation-process-queue',['apply' => '1']); ob_end_clean();
 	check(!$processed,'A failed queue run must return a failing command status');
 	TaskQueue::$queueSucceeds = true;
+	$mdpnRoot = $root.'/mdpn'; mkdir($mdpnRoot,0700); $fetches = 0; $networkAvailable = true;
+	$mdpnValues = array_merge($values,['state_directory' => $mdpnRoot,'bagit_profile' => 'mdpn','source_organization' => 'Example Member Archive']);
+	$mdpnConfig = new \MDPNPreservation\Config($mdpnValues,static function() use (&$fetches,&$networkAvailable) {
+		$fetches++; if (!$networkAvailable) { throw new \MDPNPreservation\Failure('Synthetic upstream outage'); }
+		return file_get_contents(__DIR__.'/fixtures/mdpn-dart-settings.json');
+	});
+	$mdpnStore = new \MDPNPreservation\Store($mdpnConfig,true);
+	$mdpnTool = new \MDPNPreservation\Tool($mdpnConfig,dirname(__DIR__));
+	ob_start(); $initialized = $mdpnTool->run('mdpn-preservation-init',['apply' => '1']); ob_end_clean();
+	check($initialized && $fetches === 1,'MDPN initialization seeds the canonical settings cache');
+	ob_start(); $refreshed = $mdpnTool->run('mdpn-preservation-refresh-profile',['apply' => '1']); ob_end_clean();
+	check($refreshed && $fetches === 2 && !$mdpnStore->history(1),'The explicit refresh command updates policy without creating preservation jobs');
+	$mdpnService = new \MDPNPreservation\Service($mdpnConfig,$mdpnStore,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
+	$mdpnJob = $mdpnService->enqueue(1,'full',$user,[]);
+	check($fetches === 3 && $mdpnService->run($mdpnJob['id'])['status'] === 'built' && $fetches === 4,'MDPN submission and fresh packaging validate the current canonical policy');
+	$mdpnResult = json_decode(file_get_contents($mdpnStore->directory($mdpnJob['id']).'/result.json'),true);
+	check(isset($mdpnResult['snapshot']['schema']['bagit_profile']['source_profile_sha256']),'Each deposit records the exact imported policy and its fingerprint');
+	$networkAvailable = false; $mdpnStore->update($mdpnJob['id'],['status' => 'failed']);
+	$mdpnService->retry($mdpnJob['id'],$user);
+	check($mdpnService->run($mdpnJob['id'])['status'] === 'built' && $fetches === 4,'Retained-package retries use immutable bytes without downloading new policy');
+	$count = count($mdpnStore->history(1));
+	fails(function() use ($mdpnService,$user) { $mdpnService->enqueue(1,'full',$user,[]); },'Synthetic upstream outage');
+	check(count($mdpnStore->history(1)) === $count,'An upstream outage cannot create a new job using stale cached settings');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($user) { \MDPNPreservation\Service::authorize($user,1); },'native item-level permission checks');
 	print "Preservation subprocess, history, permissions, CSRF and editor view checks passed.\n";

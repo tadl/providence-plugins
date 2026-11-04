@@ -19,6 +19,7 @@ done < <(git ls-files -z -- '*.php' '*.js')
 php plugins/collectionSibling/tests/plugin_test.php
 php plugins/groupCollectionRootMap/tests/acl_test.php
 php plugins/MDPNLOCKSSPreservation/tests/core_test.php
+php plugins/MDPNLOCKSSPreservation/tests/profile_test.php
 TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/tests/service_test.php
 TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/tests/report_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php

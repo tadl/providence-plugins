@@ -1,6 +1,6 @@
 {
   "sources": [
-    "https://github.com/MiDPN/MDPN-Config/blob/main/MDPN-DART-Settings.json",
+    "https://raw.githubusercontent.com/MiDPN/MDPN-Config/refs/heads/main/MDPN-DART-Settings.json",
     "https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagit_profile.go#L421-L430",
     "https://github.com/APTrust/dart-runner/blob/v1.0.6/core/bagger.go#L422-L431",
     "https://github.com/APTrust/dart-runner/blob/v1.0.6/util/util.go#L442-L451"
@@ -25,7 +25,7 @@
   ],
   "blank_fields": ["Bag-Group-Identifier", "Contact-Phone", "Internal-Sender-Description", "Organization-Address"],
   "bag_info_template": [
-    "Source-Organization: Traverse Area District Library",
+    "Source-Organization: Example Member Archive",
     "Bag-Count: 1 of 1",
     "Bag-Group-Identifier: ",
     "Bag-Size: {size}",

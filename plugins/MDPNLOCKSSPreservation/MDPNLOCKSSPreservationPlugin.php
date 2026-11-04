@@ -46,6 +46,9 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 	}
 	public function hookCLICaUtilsGetCommands($commands) {
 		$commands['MDPNLOCKSSPreservation'] = [
+			'mdpn_preservation_refresh_profile' => ['Command' => 'mdpn-preservation-refresh-profile','Options' => ['apply' => _t('Download and validate the current canonical MDPN settings.')],
+				'Help' => _t('Refresh the private MDPN settings cache from the canonical HTTPS source. Requires --apply and MDPN mode. New scans and deposits refresh automatically; reports and retained-package retries do not download settings.'),
+				'ShortHelp' => _t('Refresh canonical MDPN packaging settings.')],
 			'mdpn_preservation_process_queue' => ['Command' => 'mdpn-preservation-process-queue','Options' => ['apply' => _t('Process pending preservation tasks.')],
 				'Help' => _t('Process only MDPNLOCKSSPreservation tasks using the native queue handler filter. Requires --apply. Each isolated worker rechecks the original requester permissions. No recurring or unrelated tasks run.'),
 				'ShortHelp' => _t('Process the collection preservation queue.')],

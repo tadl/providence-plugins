@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.3"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.4"
 
 
 def encoded(value):
@@ -201,6 +201,9 @@ def validate_profile(tags, profile):
             raise ValueError("A required BagIt profile tag is missing")
     if profile.get("source_organizations") and tags["Source-Organization"] not in profile["source_organizations"]:
         raise ValueError("Source organization is not allowed by the BagIt profile")
+    for name, allowed in profile.get("tag_values", {}).items():
+        if tags.get(name) and tags[name] not in allowed:
+            raise ValueError("A BagIt tag value is not allowed by the current profile: " + name)
 
 
 def dart3_bag_info(tags, profile, payload_bytes):
@@ -208,7 +211,7 @@ def dart3_bag_info(tags, profile, payload_bytes):
     order = profile.get("bag_info_order")
     if not order:
         return tags
-    ordered = {name: tags.get(name, "") for name in order}
+    ordered = {name: tags.get(name, profile.get("bag_info_defaults", {}).get(name, "")) for name in order}
     # Keep DART's optional line, without requesting receiver-side AU grouping.
     ordered["Bag-Group-Identifier"] = ""
     # DART3's Bag-Size is the payload size, scaled by 1024 with SI labels.

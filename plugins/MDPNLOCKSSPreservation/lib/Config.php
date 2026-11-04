@@ -6,7 +6,9 @@ final class Failure extends \RuntimeException {}
 
 final class Config {
 	private $values;
-	public function __construct(array $values) { $this->values = $values; }
+	private $profileFetcher;
+	private $mdpnProfile;
+	public function __construct(array $values, ?callable $profileFetcher=null) { $this->values = $values; $this->profileFetcher = $profileFetcher; }
 	public static function load(string $root) : self {
 		$shared = \Configuration::load($root.'/conf/plugin.conf');
 		$local = is_file($root.'/conf/plugin.local.conf') ? \Configuration::load($root.'/conf/plugin.local.conf') : null;
@@ -30,10 +32,18 @@ final class Config {
 	}
 	public function profile() : array {
 		$name = $this->get('bagit_profile','generic');
-		if ($name === 'mdpn') { return json_decode(file_get_contents(dirname(__DIR__).'/profiles/mdpn.json'),true,512,JSON_THROW_ON_ERROR); }
+		if ($name === 'mdpn') {
+			require_once __DIR__.'/MDPNProfile.php';
+			return $this->mdpnProfile ?? ($this->mdpnProfile = MDPNProfile::cached($this->stateDirectory(false)));
+		}
 		if ($name !== 'generic') { throw new Failure('bagit_profile must be mdpn or generic.'); }
 		return ['name' => 'Generic LOCKSS staging','bagit_version' => '1.0','serialization' => 'application/tar','manifest_algorithm' => 'sha256',
 			'required_tags' => ['Source-Organization','Contact-Name','Contact-Email','External-Identifier','Bagging-Date','Payload-Oxum']];
+	}
+	public function refreshProfile() : array {
+		if ($this->get('bagit_profile','generic') !== 'mdpn') { return $this->profile(); }
+		require_once __DIR__.'/MDPNProfile.php';
+		return $this->mdpnProfile = MDPNProfile::refresh($this->stateDirectory(),$this->profileFetcher);
 	}
 	public function stateDirectory(bool $writable=true) : string {
 		$path = rtrim((string)$this->get('state_directory'), '/');

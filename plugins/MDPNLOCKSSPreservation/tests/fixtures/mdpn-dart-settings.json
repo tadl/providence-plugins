@@ -1,0 +1,179 @@
+{
+  "id": "synthetic-test-settings",
+  "bagItProfiles": [
+    {
+      "name": "MDPN",
+      "acceptBagItVersion": [
+        "1.0"
+      ],
+      "acceptSerialization": [
+        "application/tar"
+      ],
+      "serialization": "required",
+      "baseProfileId": null,
+      "manifestsAllowed": [
+        "sha256"
+      ],
+      "manifestsRequired": [],
+      "tagManifestsAllowed": [
+        "sha256"
+      ],
+      "tagManifestsRequired": [],
+      "tagFilesAllowed": [
+        "*"
+      ],
+      "bagItProfileInfo": {
+        "bagItProfileIdentifier": "https://raw.githubusercontent.com/APTrust/dart/master/profiles/btr-v0.1.json",
+        "bagItProfileVersion": "synthetic-1"
+      },
+      "tags": [
+        {
+          "tagFile": "bagit.txt",
+          "tagName": "BagIt-Version",
+          "required": true,
+          "values": [
+            "0.97",
+            "1.0"
+          ],
+          "defaultValue": "0.97"
+        },
+        {
+          "tagFile": "bagit.txt",
+          "tagName": "Tag-File-Character-Encoding",
+          "required": true,
+          "values": [],
+          "defaultValue": "UTF-8"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Source-Organization",
+          "required": true,
+          "values": [
+            "Example Member Archive",
+            "Other Member Archive"
+          ],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Bag-Count",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Bag-Group-Identifier",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Bag-Size",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Bagging-Date",
+          "required": true,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Bagging-Software",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Contact-Email",
+          "required": true,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Contact-Name",
+          "required": true,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Contact-Phone",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "External-Description",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "External-Identifier",
+          "required": true,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Internal-Sender-Description",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Internal-Sender-Identifier",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Organization-Address",
+          "required": false,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        },
+        {
+          "tagFile": "bag-info.txt",
+          "tagName": "Payload-Oxum",
+          "required": true,
+          "values": [],
+          "defaultValue": null,
+          "userValue": "SYNTHETIC_OPERATOR_VALUE_TO_IGNORE"
+        }
+      ]
+    }
+  ],
+  "storageServices": [
+    {
+      "name": "Synthetic unused transport",
+      "sftp_password": "SYNTHETIC_NOT_A_CREDENTIAL"
+    }
+  ]
+}

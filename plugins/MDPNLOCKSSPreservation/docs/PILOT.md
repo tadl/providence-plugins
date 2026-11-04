@@ -7,7 +7,7 @@ then arrange a receiving-service pilot with the preservation coordinator.
 ## Local mode on an isolated catalogue
 
 - Replace example institution values and choose `generic` or `mdpn` deliberately.
-  For MDPN, use your own approved member name from the bundled profile. For a
+  For MDPN, use your own approved member name from the canonical settings. For a
   different receiver, agree the generic metadata layout, grouping, part size,
   authentication, transfer/finalization and AU ingest workflow with its operators.
 - Run server CLI checks as the web/queue account using `sudo -u www-data --`;
@@ -38,7 +38,10 @@ then arrange a receiving-service pilot with the preservation coordinator.
 - Verify native read-only transaction behavior and clean rollback on failure.
 - Validate generated bags using an independent BagIt implementation and compare
   the selected profile with the receiving service's requirements. For MDPN,
-  compare its bundled requirements with the coordinator's current settings.
+  verify canonical settings refresh, the private cache and the policy recorded
+  in the snapshot. Simulate an outage or invalid update: new work must stop,
+  the previous cache must remain intact, reports must stay read-only and
+  retained-package retries must not fetch or repackage anything.
 - Change labels, attributes, hierarchy, relation type/rank/attributes and files;
   remove a member; create supplements. Inspect the complete change inventory.
 - Run a scan on unchanged content and verify no changes; request a new full

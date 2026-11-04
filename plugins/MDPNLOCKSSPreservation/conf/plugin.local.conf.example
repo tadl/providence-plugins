@@ -13,7 +13,8 @@ contact_email =
 # Agree a maximum tar size with your receiver; this is a 50 GB starting value.
 part_size_bytes = 50000000000
 # generic requires an agreed BagIt staging workflow; it does not configure LOCKSS.
-# For MDPN, select mdpn and use your exact approved name from profiles/mdpn.json.
+# For MDPN, select mdpn and use your approved name in the canonical MDPN settings.
+# https://raw.githubusercontent.com/MiDPN/MDPN-Config/refs/heads/main/MDPN-DART-Settings.json
 # organization_code remains YOUR institution's code in either mode (2-12 A-Z/0-9).
 bagit_profile = generic
 transport = local
