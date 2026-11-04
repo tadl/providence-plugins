@@ -52,7 +52,8 @@ class PreservationController extends ActionController {
 		catch (\MDPNPreservation\Failure $e) { $error = $error ?: $e->getMessage(); }
 		$this->view->setVar('preservation_eligibility',$eligibility);
 		$this->view->setVar('collection_id',$id); $this->view->setVar('collection_label',$collection->getLabelForDisplay());
-		$this->view->setVar('default_description',\MDPNPreservation\Config::defaultDescription($collection));
+		$this->view->setVar('default_description',\MDPNPreservation\Config::defaultExternalDescription($collection));
+		$this->view->setVar('default_internal_description',\MDPNPreservation\Config::defaultDescription($collection));
 		$this->view->setVar('history',$history); $this->view->setVar('baseline',$baseline); $this->view->setVar('preservation_error',$error);
 		$this->view->setVar('preservation_config',$this->preservation_config);
 		$this->render('index_html.php');
@@ -61,7 +62,7 @@ class PreservationController extends ActionController {
 		$this->post(); $id = $this->collection();
 		$mode = (string)$this->request->getParameter('mode',pString);
 		$input = [];
-		foreach (['source_organization','contact_name','contact_email','description'] as $field) { $input[$field] = (string)$this->request->getParameter($field,pString); }
+		foreach (['source_organization','contact_name','contact_email','description','internal_description'] as $field) { $input[$field] = (string)$this->request->getParameter($field,pString); }
 		$this->service()->enqueue($id,$mode,$this->request->user,$input); $this->back($id);
 	}
 	public function Retry() {

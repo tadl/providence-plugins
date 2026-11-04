@@ -125,7 +125,8 @@ try {
 	}
 	check(!$store->history(2) && !TaskQueue::$jobs,'Subordinate requests fail before history or queue writes');
 	$submittedDescription = str_repeat('Synthetic transfer description. ',180).'Complete transfer ending.';
-	$first = $service->enqueue(1,'full',$user,['description' => $submittedDescription]);
+	$submittedInternalDescription = 'Fictional collection. Complete internal narrative.';
+	$first = $service->enqueue(1,'full',$user,['description' => $submittedDescription,'internal_description' => $submittedInternalDescription]);
 	check($first['status'] === 'queued' && count(TaskQueue::$jobs) === 1,'Job must persist before queue dispatch');
 	check(TaskQueue::$addedHandlers === [\MDPNPreservation\Service::QUEUE_HANDLER],'Queue insertion must use the short native handler identifier');
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'CLI authorization must establish native requester identity before loading ACL-protected models');
@@ -135,9 +136,12 @@ try {
 	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 1,'An isolated worker must restore the freshly loaded requester identity');
 	$built = $store->get($first['id']);
 	check($built['metadata']['External-Description'] === $submittedDescription,'Queued metadata retains the complete description beyond 2000 bytes');
+	check($built['metadata']['Internal-Sender-Description'] === $submittedInternalDescription,'Queued metadata retains the separately reviewed internal description');
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
 	$saved = json_decode(file_get_contents($store->directory($first['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR);
 	check($saved['parts'][0]['filename'] === 'EXAMPLE_C1_001.tar','PHP-to-Python packaging omits the part suffix for a single bag');
+	check($built['result']['bag_info'] === $saved['bag_info'] && strpos($built['result']['bag_info']['EXAMPLE_C1_001'],
+		'Internal-Sender-Description: '.$submittedInternalDescription."\n") !== false,'The ledger keeps the exact generated bag-info text separately from the recovery roadmap');
 	check($saved['snapshot']['records']['ca_object_representation_multifiles'][1]['generated_preview']['disposition'] === 'regenerate'
 		&& !in_array('ca_object_representation_multifiles:1',array_column($saved['snapshot']['files'],'key'),true),'PHP-to-Python packaging retains preview regeneration metadata without copying generated media');
 	check(count($built['result']['recovery_chain']) === 1,'Recovery roadmap includes full deposit');
@@ -184,7 +188,7 @@ try {
 	ca_users::$deny = true; fails(function() use ($controller) { $controller->Index(); },'Preservation permission'); ca_users::$deny = false;
 	$request->parameters = ['collection_id' => 1];
 	$longDescription = str_repeat('Synthetic narrative. ',180).'Complete description ending.';
-	ca_collections::$descriptionFields = ['ca_collections.description' => ['<p>'.$longDescription.'</p>'],
+	ca_collections::$descriptionFields = ['ca_collections.description' => ['<p>Short fictional summary.</p><p>'.$longDescription.'</p>'],
 		'ca_collections.collection_scope_content' => ['Fictional scope and content.'],'ca_collections.provenance' => ['Example provenance.']];
 	ob_start(); $controller->Index(); $html = ob_get_clean();
 	check(strpos($html,'<script>synthetic</script>') === false && strpos($html,'&lt;script&gt;synthetic&lt;/script&gt;') !== false,'Collection labels must be escaped');
@@ -192,9 +196,23 @@ try {
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
 	$dom = new DOMDocument(); @$dom->loadHTML('<?xml encoding="UTF-8">'.$html);
 	$descriptionField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-description"]')->item(0);
-	check($descriptionField && !$descriptionField->hasAttribute('maxlength') && strpos($descriptionField->textContent,$longDescription) !== false
-		&& strpos($descriptionField->textContent,'Scope and content: Fictional scope and content.') !== false
-		&& strpos($descriptionField->textContent,'Provenance: Example provenance.') !== false,'Editor exposes the complete, editable collection description without truncation');
+	$internalField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-internal-description"]')->item(0);
+	check($descriptionField && $descriptionField->textContent === 'Short fictional summary.' && !$descriptionField->hasAttribute('readonly'),'The external description is prefilled from the first paragraph and remains editable');
+	check($internalField && !$internalField->hasAttribute('maxlength') && !$internalField->hasAttribute('readonly') && strpos($internalField->textContent,$longDescription) !== false
+		&& strpos($internalField->textContent,'Scope and content: Fictional scope and content.') !== false
+		&& strpos($internalField->textContent,'Provenance: Example provenance.') !== false,'Editor exposes the complete, editable internal narrative without truncation');
+	$bagInfo = (new DOMXPath($dom))->query('//textarea[starts-with(@id,"mdpn-bag-info-")]');
+	check($bagInfo->length > 0,'Completed bags expose their bag-info.txt in history');
+	foreach ($bagInfo as $field) {
+		check($field->hasAttribute('readonly') && !$field->hasAttribute('name'),'Bag-info text is selectable and read-only, without becoming form input');
+		$details = $field->parentNode->parentNode;
+		check($details->nodeName === 'details' && !$details->hasAttribute('open'),'Each bag-info section is collapsed by default and uses native expandable controls');
+	}
+	$unsafe = $store->get($first['id'])['result']; $safe = $unsafe;
+	$unsafe['bag_info']['EXAMPLE_C1_001'] = "External-Description: </textarea><script>unsafeBagInfo()</script>\n";
+	$store->update($first['id'],['result' => $unsafe]); ob_start(); $controller->Index(); $unsafeHtml = ob_get_clean();
+	check(strpos($unsafeHtml,'<script>unsafeBagInfo()</script>') === false && strpos($unsafeHtml,'&lt;/textarea&gt;&lt;script&gt;unsafeBagInfo()&lt;/script&gt;') !== false,'Bag-info text cannot escape its textarea or execute HTML');
+	$store->update($first['id'],['result' => $safe]);
 	ca_collections::$descriptionFields = [];
 	$sidebar = $controller->Info();
 	check(strpos($sidebar,'Native collection inspector') !== false && strpos($sidebar,'Basic Info') !== false,'Preservation retains the native inspector and editor screens');

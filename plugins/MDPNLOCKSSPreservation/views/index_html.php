@@ -39,7 +39,8 @@ $form = function($action,$name) use ($id) {
 <?php foreach (['source_organization' => _t('Source organization'),'contact_name' => _t('Contact name'),'contact_email' => _t('Contact email')] as $field => $label): ?>
 <p><label for="mdpn-<?= $escape($field) ?>"><?= $escape($label) ?> *</label><br><input id="mdpn-<?= $escape($field) ?>" name="<?= $escape($field) ?>" type="<?= $field === 'contact_email' ? 'email' : 'text' ?>" required maxlength="500" value="<?= $escape($config->get($field,'')) ?>" style="width:100%;max-width:38em"></p>
 <?php endforeach; ?>
-<p><label for="mdpn-description"><?= $escape(_t('Deposit description (optional)')) ?></label><br><textarea id="mdpn-description" name="description" rows="8" aria-describedby="mdpn-description-help" style="width:100%;max-width:38em"><?= $escape($this->getVar('default_description')) ?></textarea><br><small id="mdpn-description-help"><?= $escape(_t('Prefilled from the collection title, description, scope and content, and provenance. Review before sending.')) ?></small></p>
+<p><label for="mdpn-description"><?= $escape(_t('External-Description: short summary (optional)')) ?></label><br><textarea id="mdpn-description" name="description" rows="4" aria-describedby="mdpn-description-help" style="width:100%;max-width:38em"><?= $escape($this->getVar('default_description')) ?></textarea><br><small id="mdpn-description-help"><?= $escape(_t('Prefilled from the first description paragraph, or the collection title when no description is available. Review before sending.')) ?></small></p>
+<p><label for="mdpn-internal-description"><?= $escape(_t('Internal-Sender-Description: complete narrative (optional)')) ?></label><br><textarea id="mdpn-internal-description" name="internal_description" rows="8" aria-describedby="mdpn-internal-description-help" style="width:100%;max-width:38em"><?= $escape($this->getVar('default_internal_description')) ?></textarea><br><small id="mdpn-internal-description-help"><?= $escape(_t('Includes the collection title, complete description, scope and content, and provenance. Both descriptions become single lines of plain text in bag-info.txt.')) ?></small></p>
 <p><label for="mdpn-mode"><?= $escape(_t('Deposit type')) ?></label><br><select id="mdpn-mode" name="mode"><?php if ($baseline): ?><option value="supplemental"><?= $escape(_t('Supplement the latest complete deposit')) ?></option><?php endif; ?><option value="full"><?= $escape(_t('Create new full deposit')) ?></option></select></p>
 <p><button type="submit"><?= $escape($config->get('transport','local') === 'local' ? _t('Create local preservation package') : _t('Create and send preservation deposit')) ?></button></p>
 </form>
@@ -59,6 +60,11 @@ $form = function($action,$name) use ($id) {
 <?php endif; ?>
 <?php foreach ($job['result']['parts'] as $n => $part): ?>
 <p><?= caNavLink($this->request,$escape($part['filename']),'','MDPNLOCKSSPreservation','Preservation','Download',['collection_id' => $id,'job_id' => $job['id'],'part' => $n]) ?><br><small>SHA-256: <?= $escape($part['sha256']) ?></small></p>
+<?php if (isset($job['result']['bag_info'][$part['bag_id']])): $bagInfoId = 'mdpn-bag-info-'.$job['id'].'-'.$n; ?>
+<details><summary><?= $escape(_t('View bag-info.txt for %1',$part['filename'])) ?></summary>
+<p><label for="<?= $escape($bagInfoId) ?>"><?= $escape(_t('bag-info.txt (read-only)')) ?></label><br><textarea id="<?= $escape($bagInfoId) ?>" readonly rows="17" wrap="soft" style="width:100%;box-sizing:border-box;font-family:monospace"><?= $escape($job['result']['bag_info'][$part['bag_id']]) ?></textarea></p>
+</details>
+<?php endif; ?>
 <?php endforeach; ?>
 <details><summary><?= $escape(_t('Changes (first 200; complete list is in each bag)')) ?></summary><ul><?php foreach ($job['result']['changes'] as $change): ?><li><?= $escape($change['category'].' · '.$change['key'].' · '.$change['operation']) ?></li><?php endforeach; ?></ul></details>
 <?php endif; ?>

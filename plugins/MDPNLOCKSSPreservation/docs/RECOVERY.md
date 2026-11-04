@@ -61,6 +61,13 @@ checksummed snapshot. Older bags additionally contain `Preservation-*` tags in
 `bag-info.txt`; the tool accepts those archives and checks any such tags against
 the snapshot. Both layouts use the same recovery command.
 
+External-Description is a short summary; Internal-Sender-Description retains the
+complete transfer narrative. Both are plain text on single physical lines.
+Neither replaces the authoritative rich catalogue metadata in the snapshot.
+The private job result and ledger retain a copy of each new bag's exact
+bag-info.txt for the editor's expandable, read-only display. This display copy
+is not a recovery dependency and is not added to the roadmap or snapshot.
+
 Record envelopes contain `row`, `labels`, `attributes` (native attribute rows
 and all native value rows) and `acl`. Every field is retained rather than using
 the editor's display template. Binary/non-UTF-8 strings use a single-key

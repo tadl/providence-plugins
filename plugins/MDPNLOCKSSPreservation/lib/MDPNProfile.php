@@ -117,7 +117,7 @@ final class MDPNProfile {
 			if ($default !== '') { $defaults[$name] = $default; }
 			if ($values) { $restrictions[$name] = $values; }
 		}
-		$automatic = ['Source-Organization','Contact-Name','Contact-Email','External-Description','Bag-Count','Bag-Size','Bagging-Date',
+		$automatic = ['Source-Organization','Contact-Name','Contact-Email','External-Description','Internal-Sender-Description','Bag-Count','Bag-Size','Bagging-Date',
 			'Bagging-Software','External-Identifier','Internal-Sender-Identifier','Payload-Oxum','BagIt-Profile-Identifier'];
 		foreach ($required as $name) {
 			if (!in_array($name,$automatic,true) && empty($defaults[$name])) { throw new Failure('Canonical MDPN profile requires an unsupported field: '.$name.'.'); }

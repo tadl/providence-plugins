@@ -68,13 +68,27 @@ try {
 	};
 	$description = Config::defaultDescription($narrative);
 	check($description === "Fictional collection\n\nDescription: First paragraph. Second & final.\n\nScope and content: Brochures and photographs.\n\nProvenance: Transferred by Example Society.",'Default description combines full descriptive fields as plain text without duplicate values');
-	$metadata = $config->bagMetadata(['description' => $description]);
-	check(strpos($metadata['External-Description'],"\n") === false && strpos($metadata['External-Description'],'Provenance: Transferred by Example Society.') !== false,'Paragraphs flatten into one complete BagIt field');
+	check(Config::defaultExternalDescription($narrative) === 'First paragraph.','The external description uses the first description paragraph');
+	$metadata = $config->bagMetadata(['description' => Config::defaultExternalDescription($narrative),'internal_description' => $description]);
+	check($metadata['External-Description'] === 'First paragraph.' && strpos($metadata['Internal-Sender-Description'],"\n") === false
+		&& strpos($metadata['Internal-Sender-Description'],'Description: First paragraph. Second & final.') !== false
+		&& strpos($metadata['Internal-Sender-Description'],'Provenance: Transferred by Example Society.') !== false,'The short external summary and complete internal narrative are retained as single lines');
+	foreach (["First wrapped\nline.\n\nSecond paragraph." => 'First wrapped line.',
+		'&lt;p&gt;First &amp; only.&lt;/p&gt;&lt;p&gt;Second.&lt;/p&gt;' => 'First & only.',
+		'<script>ignored()</script><p> </p><p>First <em>formatted</em> paragraph.</p><p>Second.</p>' => 'First formatted paragraph.',
+		'First line.<br>Still first.<br><br>Second paragraph.' => 'First line. Still first.'] as $value => $expected) {
+		$narrative->fields['description'] = [$value];
+		check(Config::defaultExternalDescription($narrative) === $expected,'Paragraph selection handles rich text, encoded HTML and wrapped plain text');
+	}
 	$longDescription = str_repeat('Synthetic description with café. ',200).'Complete ending.';
 	check($config->bagMetadata(['description' => $longDescription])['External-Description'] === $longDescription,'Full descriptions exceeding 2000 bytes are retained intact');
+	check($config->bagMetadata(['internal_description' => $longDescription])['Internal-Sender-Description'] === $longDescription,'The internal description retains its complete text without a length cap');
 	check($config->bagMetadata(['description' => '<p>Safe text.</p><script>unwanted()</script><style>unwanted</style>'])['External-Description'] === 'Safe text.','Description text does not retain active HTML or scripts');
+	check($config->bagMetadata(['internal_description' => '<p>Safe text.</p><p>Next.</p><style>unwanted</style>'])['Internal-Sender-Description'] === 'Safe text. Next.','Internal descriptions also strip formatting and flatten paragraphs');
 	fails(function() use ($config) { $config->bagMetadata(['description' => "Invalid\x00text"]); },'control characters');
-	$narrative->fields = []; check(Config::defaultDescription($narrative) === 'Fictional collection','Sites without those narrative fields still receive the title');
+	fails(function() use ($config) { $config->bagMetadata(['internal_description' => "Invalid\x00text"]); },'control characters');
+	$narrative->fields['description'] = ['<p> </p>']; check(Config::defaultExternalDescription($narrative) === 'Fictional collection','An empty description falls back to the collection title');
+	$narrative->fields = []; check(Config::defaultDescription($narrative) === 'Fictional collection' && Config::defaultExternalDescription($narrative) === 'Fictional collection','Sites without those narrative fields still receive the title');
 	$outside = ['organization_code' => 'EXAMPLE','source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org'];
 	check((new Config($outside))->bagMetadata([])['Source-Organization'] === 'Example Archive','The default generic profile accepts an institution outside the MDPN membership list');
 	$mdpn = new Config(array_merge($outside,['bagit_profile' => 'mdpn','state_directory' => $directory]),static function() { return file_get_contents(__DIR__.'/fixtures/mdpn-dart-settings.json'); });

@@ -158,6 +158,27 @@ class PreservationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tag value is not allowed"):
             self.build(metadata=invalid)
 
+    def test_saved_bag_info_matches_every_bag_and_retains_both_descriptions(self):
+        self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
+        for mdpn in (False, True):
+            if mdpn:
+                self.mdpn_profile()
+            metadata = self.mdpn_metadata()
+            metadata.update({"External-Description": "Short fictional summary.",
+                             "Internal-Sender-Description": "Fictional collection. " + "Complete narrative. " * 200 + "Final words."})
+            for limit in (5_000_000, 1_300_000):
+                with self.subTest(mdpn=mdpn, limit=limit):
+                    result, output = self.build(metadata=metadata, limit=limit)
+                    self.assertEqual(set(result["bag_info"]), {p["bag_id"] for p in result["parts"]})
+                    for archive in self.archives(result, output):
+                        text = self.assert_independently_valid(archive)
+                        self.assertEqual(result["bag_info"][archive.stem], text)
+                        tags = dict(line.split(": ", 1) for line in text.splitlines())
+                        self.assertEqual(tags["External-Description"], metadata["External-Description"])
+                        self.assertEqual(tags["Internal-Sender-Description"], metadata["Internal-Sender-Description"])
+                        if mdpn:
+                            self.assertEqual(text.splitlines()[10], "External-Identifier: " + archive.stem)
+
     def test_mdpn_bag_info_matches_dart3_profile_layout_with_or_without_description(self):
         reference = json.loads((Path(__file__).parent / "fixtures/dart3-mdpn.json").read_text())
         profile = self.mdpn_profile()

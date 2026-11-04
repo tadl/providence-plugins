@@ -120,18 +120,23 @@ following workflow.
 1. Open the collection editor and select **PRESERVATION**, after **LOG** in the
    left menu. Confirm that the selected collection and its hierarchy are the
    intended preservation scope.
-2. Review the organization, contact name, contact email and deposit description.
-   The description combines the collection title with its **Description**,
-   **Scope and Content**, and **Provenance** values when available. It is editable.
-   Review it for an audience outside the institution as well as for local staff.
+2. Review the organization, contact name, contact email and both descriptions.
+   **External-Description** starts with the first paragraph of the collection's
+   **Description**, or its title when no description is available.
+   **Internal-Sender-Description** contains the collection title, complete
+   **Description**, **Scope and Content**, and **Provenance** when available.
+   Both are editable. Review the short summary for an external audience and
+   retain the complete narrative for future custodians.
 3. Choose **Create new full deposit**, or **Supplement the latest complete
    deposit** when an eligible deposit already exists for this destination.
 4. Select **Create and send preservation deposit**. Processing continues in the
    background after the browser closes. With local test delivery configured,
    the button instead creates a local package without uploading it.
 5. Refresh the page to review the result. For a multipart deposit, verify that
-   every part was delivered. Retain access to the recovery roadmap, which lists
-   the bags and checksums needed to reconstruct this version.
+   every part was delivered. Expand **View bag-info.txt** beside any bag to
+   inspect or copy its exact transfer metadata from a read-only textarea.
+   Retain access to the recovery roadmap, which lists the bags and checksums
+   needed to reconstruct this version.
 6. Coordinate with the receiving service to check processing and arrange LOCKSS
    crawls of every new AU. A successful staging upload is not evidence of a
    completed crawl or distributed preservation.
@@ -142,12 +147,18 @@ following workflow.
    or independently verify that evidence. Confirm a parent deposit before its
    supplement.
 
-The description field accepts paragraphs. On submission, rich text becomes
-plain text and paragraph breaks become spaces, so `External-Description`
-occupies one physical line in `bag-info.txt`. The complete description is
-retained. Identical repeated narrative values
-are included once; missing narrative fields are skipped. The original rich
-metadata remains intact in the catalogue snapshot.
+Both description fields accept paragraphs. On submission, formatting is removed
+and paragraph breaks become spaces, so each occupies one physical line in
+`bag-info.txt`. Neither field has an arbitrary text-length limit. The complete
+internal narrative includes the first paragraph as well as all later description
+paragraphs. Identical repeated narrative values are included once; missing fields
+are skipped. The original rich metadata remains intact in the catalogue snapshot.
+
+Bag-info sections are collapsed by default and appear after packaging completes,
+including for a completed package awaiting a transfer retry. They contain the
+text written into that particular bag, rather than a preview or a reconstruction
+from current settings. Older jobs created before this display was added have no
+saved display copy; their original bag-info.txt remains inside the archive.
 
 ### Status and changes since the last deposit
 
@@ -271,9 +282,9 @@ checksummed `data/metadata/snapshot.json`.
 | `Contact-Email` | Email submitted by the operator; local configuration may supply a default. |
 | `Contact-Name` | Contact name submitted by the operator; local configuration may supply a default. |
 | `Contact-Phone` | Blank; not collected by the current form. |
-| `External-Description` | The complete description reviewed in the form, serialized as one line of plain text. |
+| `External-Description` | The short summary reviewed in the form; initially the first Description paragraph, or the title if unavailable. Serialized as one line of plain text. |
 | `External-Identifier` | Package filename without `.tar`; used as the AU title by MDPN's published processor. |
-| `Internal-Sender-Description` | Blank. |
+| `Internal-Sender-Description` | The complete narrative reviewed in the form: title, full Description, Scope and Content, and Provenance when available. Serialized as one line of plain text. |
 | `Internal-Sender-Identifier` | Permanent repository identifier, Providence table name and collection database ID. |
 | `Organization-Address` | Blank; not collected by the current form. |
 | `Payload-Oxum` | Payload byte count and file count, separated by a period. Counts include metadata files as well as originals. It is a completeness check, not a substitute for SHA-256 validation. |
@@ -481,11 +492,14 @@ mode is enabled, a valid membership relationship type must be configured. If
 no type is configured and hierarchy mode is disabled, all object-to-collection
 relationship types count as membership. Verify scope on a small test collection.
 
-The editable deposit description starts with the native collection title. Its
-additional narrative fields use element codes `description`,
-`collection_scope_content` and `provenance` when present and applicable. A site
-using different element codes can enter its description in the form; absent
-autofill fields do not exclude any metadata from the preserved snapshot.
+The external summary uses the first paragraph of element `description`, falling
+back to the native collection title. HTML paragraph boundaries and blank lines
+in plain text determine that first paragraph; wrapped lines within a paragraph
+are joined. The complete internal narrative starts with the title and includes
+`description`, `collection_scope_content` and `provenance` when present and
+applicable. A site using different element codes can enter both descriptions in
+the form; absent autofill fields do not exclude metadata from the snapshot.
+CLI submissions can supply `--description` and `--internal-description` explicitly.
 Custom media-processing and multifile import procedures also need the review
 described under [permission and media-processing details](#permission-and-media-processing-details).
 
@@ -728,7 +742,7 @@ the destination does not use MDPN's organization allowlist.
 
 Generic bags carry the configured organization/contact values, external package
 identifier, stable internal source identifier, collection group, part count,
-bagging date/software and payload oxum, plus the description when supplied.
+bagging date/software and payload oxum, plus both descriptions when supplied.
 They do not claim MDPN's profile URI, DART3 field order or MDPN's optional blank
 fields and size tag. The generic group value is the snapshot's permanent
 collection-group identifier. Review this actual output with the receiver before

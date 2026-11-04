@@ -109,6 +109,7 @@ final class Service {
 				Store::write($directory.'/result.json',$result);
 			}
 			$summary = ['fingerprint' => $result['snapshot']['fingerprint'],'parts' => $result['parts'],
+				'bag_info' => $result['bag_info'] ?? [],
 				'changes' => array_slice($result['snapshot']['changes'],0,200),'change_count' => count($result['snapshot']['changes']),'captured_at' => $result['snapshot']['captured_at'],
 				'files' => count($result['snapshot']['files']),'records' => array_map('count',$result['snapshot']['records']),
 				'changed' => $result['changed']];

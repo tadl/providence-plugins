@@ -88,6 +88,26 @@ final class Config {
 		return $transport.':'.$id.':'.hash('sha256', json_encode([$this->get('sftp_host'), $this->get('sftp_port'), $this->get('sftp_directory')]));
 	}
 	/** Human-readable transfer description, using descriptive collection fields only. */
+	public static function defaultExternalDescription($collection) : string {
+		$paragraphs = [];
+		if ($collection->hasElement('description')) {
+			$values = $collection->get('ca_collections.description',['returnAsArray' => true,'convertCodesToDisplayText' => true]) ?: [];
+			array_walk_recursive($values,static function($value) use (&$paragraphs) {
+				if (!is_string($value)) { return; }
+				$value = html_entity_decode($value,ENT_QUOTES|ENT_HTML5,'UTF-8');
+				$value = preg_replace('~<(script|style)\b[^>]*>.*?</\1\s*>~is',' ',$value);
+				$value = preg_replace('~</?(?:p|div|li|ul|ol|h[1-6]|table|tr|section|blockquote)\b[^>]*>~i',"\n\n",$value);
+				$value = preg_replace('~<br\b[^>]*>~i',"\n",$value);
+				$parts = preg_split('/\R[\s\p{Z}]*\R/u',$value);
+				if ($parts === false) { throw new Failure('The deposit description must contain valid UTF-8 text.'); }
+				foreach ($parts as $part) {
+					$text = self::descriptionText($part);
+					if ($text !== '') { $paragraphs[] = $text; }
+				}
+			});
+		}
+		return $paragraphs[0] ?? self::descriptionText((string)$collection->getLabelForDisplay());
+	}
 	public static function defaultDescription($collection) : string {
 		$title = self::descriptionText((string)$collection->getLabelForDisplay());
 		$parts = $title === '' ? [] : [$title]; $seen = [$title => true];
@@ -122,10 +142,12 @@ final class Config {
 		if (!filter_var($metadata['Contact-Email'], FILTER_VALIDATE_EMAIL)) { throw new Failure('Enter a valid contact email address.'); }
 		$profile = $this->profile();
 		if (isset($profile['source_organizations']) && !in_array($metadata['Source-Organization'],$profile['source_organizations'],true)) { throw new Failure('Source organization must exactly match a permitted organization in the MDPN profile.'); }
-		$description = (string)($input['description'] ?? '');
-		if (preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$description)) { throw new Failure('The deposit description must not contain control characters.'); }
-		$description = self::descriptionText($description);
-		if ($description !== '') { $metadata['External-Description'] = $description; }
+		foreach (['External-Description' => 'description','Internal-Sender-Description' => 'internal_description'] as $tag => $field) {
+			$description = (string)($input[$field] ?? '');
+			if (preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/',$description)) { throw new Failure('Deposit descriptions must not contain control characters.'); }
+			$description = self::descriptionText($description);
+			if ($description !== '') { $metadata[$tag] = $description; }
+		}
 		$code = (string)$this->get('organization_code', '');
 		if (!preg_match('/^[A-Z0-9]{2,12}$/D', $code)) { throw new Failure('Configure organization_code using 2–12 uppercase letters or digits.'); }
 		return $metadata;

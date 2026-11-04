@@ -42,7 +42,8 @@ final class Tool {
 				require_once __CA_MODELS_DIR__.'/ca_users.php';
 				$user = new \ca_users((int)($settings['user-id'] ?? 0));
 				$job = $service->enqueue((int)($settings['collection-id'] ?? 0),(string)(($settings['mode'] ?? '') ?: 'full'),$user,
-					array_filter(['contact_name' => $settings['contact-name'] ?? null,'contact_email' => $settings['contact-email'] ?? null,'description' => $settings['description'] ?? null],function($v) { return $v !== null && $v !== ''; }));
+					array_filter(['contact_name' => $settings['contact-name'] ?? null,'contact_email' => $settings['contact-email'] ?? null,
+						'description' => $settings['description'] ?? null,'internal_description' => $settings['internal-description'] ?? null],function($v) { return $v !== null && $v !== ''; }));
 				print Store::json(['job_id' => $job['id'],'status' => $job['status']])."\n"; return true;
 			}
 			$id = (string)($settings['job'] ?? '');

@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.6"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.7"
 
 
 def encoded(value):
@@ -319,7 +319,7 @@ def build(request):
     chain.append({"deposit_id": job["id"], "mode": job["mode"], "parts": [{"bag_id": n, "filename": n + ".tar"} for n in names]})
     snapshot["chain"] = chain
     metadata = metadata_files(snapshot)
-    parts = []
+    parts, bag_info = [], {}
     for number, (name, items) in enumerate(zip(names, groups), 1):
         bag = output / name
         bag.mkdir(mode=0o700)
@@ -352,7 +352,8 @@ def build(request):
         if profile.get("bag_info_order"):
             # Match DART3 TagDefinition.ToFormattedString after input validation.
             tags = {name: re.sub(r"[\t\n\f\r ]+", " ", str(value)).strip() for name, value in tags.items()}
-        (bag / "bag-info.txt").write_text("".join(k + ": " + str(v) + "\n" for k, v in tags.items()), encoding="utf-8")
+        bag_info[name] = "".join(k + ": " + str(v) + "\n" for k, v in tags.items())
+        (bag / "bag-info.txt").write_text(bag_info[name], encoding="utf-8")
         (bag / "tagmanifest-sha256.txt").write_text("".join(digest(bag / f) + "  " + f + "\n" for f in ("bagit.txt", "bag-info.txt", "manifest-sha256.txt")), encoding="utf-8")
         archive = output / (name + ".tar")
         with tarfile.open(archive, "x", format=tarfile.PAX_FORMAT) as tar:
@@ -364,7 +365,7 @@ def build(request):
         parts.append({"bag_id": name, "filename": archive.name, "size": archive.stat().st_size, "sha256": digest(archive)})
         shutil.rmtree(bag)
     shutil.rmtree(stage)
-    return {"snapshot": snapshot, "parts": parts, "changed": True}
+    return {"snapshot": snapshot, "parts": parts, "bag_info": bag_info, "changed": True}
 
 
 def manifest_entries(content):
