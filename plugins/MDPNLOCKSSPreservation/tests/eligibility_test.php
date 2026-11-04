@@ -45,6 +45,9 @@ check(Eligibility::forModel($config,new ca_collections(1))->classify(1) === $pol
 check(!Eligibility::forModel($config,new ca_collections(2))->classify(2)['eligible'],'Native editor checks reject subordinate records');
 $withoutNotesBundle = new class(1) extends ca_collections { public function hasElement($field) { return false; } };
 check(Eligibility::forModel($config,$withoutNotesBundle)->classify(1)['eligible'],'A record type without the notes bundle can still be an archival root below marked parents');
+ca_collections::$notes[1] = $marker;
+check(Eligibility::forModel($config,$withoutNotesBundle)->classify(1)['organizational_unit'],'A saved marker remains effective even if the current type does not expose its notes bundle');
+unset(ca_collections::$notes[1]);
 fails(function() { (new Config(['organizational_unit_element'=>'ca_collections.internal_notes']))->organizationalUnitElement(); },'without a table prefix');
 fails(function() { (new Config(['organizational_unit_marker'=>"bad\nmarker"]))->organizationalUnitMarker(); },'single-line');
 print "Organizational markers, hierarchy roots, editor parity and invalid ancestry checks passed.\n";
