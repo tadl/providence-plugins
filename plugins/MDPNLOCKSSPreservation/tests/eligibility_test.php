@@ -43,6 +43,8 @@ $GLOBALS['AUTH_CURRENT_USER_ID'] = 1;
 ca_collections::$parents = [1=>101,101=>100,2=>1]; ca_collections::$notes = $catalogue->organizationalNotes;
 check(Eligibility::forModel($config,new ca_collections(1))->classify(1) === $policy->classify(1),'Native editor checks agree with the authoritative catalogue policy');
 check(!Eligibility::forModel($config,new ca_collections(2))->classify(2)['eligible'],'Native editor checks reject subordinate records');
+$withoutNotesBundle = new class(1) extends ca_collections { public function hasElement($field) { return false; } };
+check(Eligibility::forModel($config,$withoutNotesBundle)->classify(1)['eligible'],'A record type without the notes bundle can still be an archival root below marked parents');
 fails(function() { (new Config(['organizational_unit_element'=>'ca_collections.internal_notes']))->organizationalUnitElement(); },'without a table prefix');
 fails(function() { (new Config(['organizational_unit_marker'=>"bad\nmarker"]))->organizationalUnitMarker(); },'single-line');
 print "Organizational markers, hierarchy roots, editor parity and invalid ancestry checks passed.\n";

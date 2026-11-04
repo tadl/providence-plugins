@@ -21,8 +21,7 @@ final class Eligibility {
 			if (isset($rows[$id])) { throw new Failure('A cycle prevents determining the preservation root.'); }
 			if ($model->get('deleted')) { throw new Failure('The collection hierarchy contains a deleted record.'); }
 			$marked = false;
-			if ($element !== '') {
-				if (!$model->hasElement($element)) { throw new Failure('The organizational_unit_element is not a valid collection metadata element.'); }
+			if ($element !== '' && $model->hasElement($element)) {
 				// Owned attributes avoid inheriting an organizational marker from a parent.
 				foreach ($model->getAttributesByElement($element) ?: [] as $attribute) {
 					foreach ($attribute->getValues() as $value) {
