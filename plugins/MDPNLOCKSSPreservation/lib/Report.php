@@ -102,7 +102,8 @@ final class Report {
 			foreach ($this->ancestors($collections,$id) as $ancestor) {
 				if (isset($attempts[$ancestor]) && (!$attempt || strcmp($attempts[$ancestor]['created_at'],$attempt['created_at']) > 0)) { $attempt = $attempts[$ancestor]; }
 			}
-			$requiresAttention = $status !== 'current' || ($attempt && $attempt['status'] === 'failed');
+			if ($status !== 'error' && ($attempt['status'] ?? null) === 'failed') { $status = 'deposit_failed'; }
+			$requiresAttention = $status !== 'current';
 			$row = ['collection_id' => $id,'parent_id' => $collection['parent_id'],'label' => $collection['label'],'status' => $status,
 				'attention_required' => (bool)$requiresAttention,'coverage_incomplete' => $coverageIncomplete,'preservation' => $preservation,'latest_deposit' => $deposit,
 				'latest_attempt' => $attempt ? ['job_id' => $attempt['id'],'root_collection_id' => (int)$attempt['collection_id'],'status' => $attempt['status'],'created_at' => $attempt['created_at']] : null];
@@ -192,7 +193,6 @@ final class Report {
 			$label = preg_replace('/[\x00-\x1f\x7f]+/',' ',$row['label']);
 			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %-8s %s\n",$row['collection_id'],$row['status'],$row['preservation']['freshness'] ?? 'never_confirmed',
 				$row['latest_deposit']['freshness'] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$coverage['root_collection_id'] ?? '-', $label);
-			if (($row['latest_attempt']['status'] ?? '') === 'failed') { $out .= "         Latest deposit attempt failed.\n"; }
 			foreach (array_unique(array_filter([$row['preservation']['error'] ?? null,$row['latest_deposit']['error'] ?? null])) as $error) { $out .= '         '.$error."\n"; }
 		}
 		$out .= 'Collections: '.$report['summary']['collections'].'; attention required: '.$report['summary']['attention_required'].'; errors: '.$report['summary']['errors']."\n";

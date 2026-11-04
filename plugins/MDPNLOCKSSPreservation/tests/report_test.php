@@ -70,6 +70,15 @@ try {
 	check(isset($firstSnapshot['records']['ca_collections'][2]),'Suppressing subordinate report rows never removes them from the preserved snapshot');
 	check($rows[99]['status'] === 'never_deposited','A boundary reference is not preservation coverage');
 	check(private_tree($root) === $before && count(TaskQueue::$jobs) === $queued,'A fresh report changes no ledger, files, jobs or archives');
+	$failedFirst = $store->create(99,'full',$config->target(),1,[]); $store->update($failedFirst['id'],['status' => 'failed']);
+	$failureReport = $reporter->run($user); $failureRow = index_rows($failureReport)[99];
+	check($failureRow['status'] === 'deposit_failed' && $failureRow['preservation'] === null && $failureRow['latest_deposit'] === null
+		&& $failureRow['attention_required'],'A failed first attempt reports deposit_failed without claiming a completed or confirmed deposit');
+	$text = Report::render($failureReport,'text');
+	check(preg_match('/^99\s+deposit_failed\s+never_confirmed\s+none\s/m',$text)
+		&& strpos($text,'Latest deposit attempt failed.') === false,'Failure appears in the main status column instead of a separate line');
+	$jsonFailure = json_decode(Report::render($failureReport,'json'),true,512,JSON_THROW_ON_ERROR);
+	check(index_rows($jsonFailure)[99]['status'] === 'deposit_failed' && $jsonFailure['summary']['states']['deposit_failed'] === 1,'JSON and summary counts use the same failure status');
 	fails(function() use ($readOnly,$config) { $readOnly->create(1,'full',$config->target(),1,[]); },'read-only');
 	fails(function() use ($readOnly,$first) { $readOnly->update($first['id'],['status' => 'confirmed']); },'read-only');
 	fails(function() use ($readOnly) { $readOnly->groupIdentifier(1); },'read-only');
@@ -93,14 +102,15 @@ try {
 	check($rows[1]['status'] === 'out_of_date' && !isset($rows[3],$rows[4]),'New children make the parent stale without creating separate report rows; deleted records stay excluded');
 	for ($i=0; $i<102; $i++) { $failed = $store->create(1,'full',$config->target(),1,[]); $store->update($failed['id'],['status' => 'failed']); }
 	$rows = index_rows($reporter->run($user));
-	check($rows[1]['preservation']['job_id'] === $first['id'] && $rows[1]['latest_attempt']['status'] === 'failed','Confirmations older than the UI history cap are retained; failure does not replace the baseline');
+	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['job_id'] === $first['id'] && $rows[1]['latest_attempt']['status'] === 'failed'
+		&& $rows[1]['preservation']['freshness'] === 'out_of_date','Failure gets its own overall status while retaining older confirmed preservation and its freshness');
 	fails(function() use ($service,$user) { $service->enqueue(2,'full',$user,[]); },'Only top-level archival collections');
 	$catalogue->data['ca_collections'][2]['parent_id'] = 101;
 	$child = $service->enqueue(2,'full',$user,[]); check($service->run($child['id'])['status'] === 'built','Independent root deposit build');
 	$catalogue->data['ca_collections'][2]['parent_id'] = 1;
 	$store->update($child['id'],['status' => 'uploaded']); $service->confirm($child['id'],$user,'synthetic child receipt');
 	$rows = index_rows($reporter->run($user));
-	check(!isset($rows[2]) && $rows[1]['status'] === 'out_of_date','A legacy deposit at a newly subordinate root does not establish preservation of its parent');
+	check(!isset($rows[2]) && $rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'out_of_date','A legacy subordinate deposit does not establish preservation of its parent or hide its failed attempt');
 	check(count($reporter->run($user)['warnings']) === 1,'Historical subordinate deposits remain visible as warnings and retain their history');
 	$new = $service->enqueue(1,'full',$user,[]); check($service->run($new['id'])['status'] === 'built','Updated full build'); $store->update($new['id'],['status' => 'uploaded']);
 	$updated = $reporter->run($user); $rows = index_rows($updated);
@@ -133,6 +143,15 @@ try {
 	check($rows[1]['status'] === 'awaiting_confirmation' && $rows[1]['latest_deposit']['freshness'] === 'current'
 		&& $rows[1]['latest_deposit']['changes_in_deposit_root'] === [],'Changing packaging profiles does not make unchanged catalogue content stale or require another deposit');
 	check(private_tree($root) === $beforeReport,'MDPN reporting reads the cached policy without network access or cache writes');
+	$service->confirm($new['id'],$user,'synthetic current node receipt');
+	$failedCurrent = $store->create(1,'full',$config->target(),1,[]); $store->update($failedCurrent['id'],['status' => 'failed']);
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'current'
+		&& $rows[1]['latest_deposit']['job_id'] === $new['id'] && $rows[1]['attention_required'],'A failed later attempt stays visible without hiding current confirmed preservation');
+	$catalogue->forbidFiles = true; $rows = index_rows($reporter->run($user,true)); $catalogue->forbidFiles = false;
+	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'not_checked','History-only reports show recorded failures without asserting content freshness');
+	rename($path,$path.'.saved'); $rows = index_rows($reporter->run($user)); rename($path.'.saved',$path);
+	check($rows[1]['status'] === 'error','A failed latest attempt cannot hide a snapshot verification error');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($reporter,$user) { $reporter->run($user); },'native ACL checks enabled');
 	print "Preservation maintenance report, inherited coverage, freshness and read-only checks passed.\n";

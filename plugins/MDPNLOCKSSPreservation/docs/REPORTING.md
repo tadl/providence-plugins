@@ -59,8 +59,11 @@ the remaining collections.
 The report reads uncapped ledger history, so a confirmation older than the
 editor's 100-job history page is still considered. Failed, cancelled, queued or
 running jobs never replace a completed comparison baseline. The latest deposit
-attempt is reported separately; a later failed attempt requires attention even
-when an earlier confirmed snapshot still matches current content.
+attempt is retained in the report. A failed latest attempt gives the overall
+status `deposit_failed`, even when an earlier confirmed snapshot still matches
+current content. The preservation and latest-complete-deposit freshness columns
+continue to describe those earlier successful deposits. A later successful
+attempt clears the failure status; a snapshot verification error takes priority.
 
 Organizational markers and hierarchy placement select eligible roots using the
 same rule as deposit creation and the editor menu. See
@@ -94,6 +97,7 @@ checked deposit root, latest attempt, attention flags and totals by status.
 | --- | --- |
 | `current` | A confirmed deposit matches the eligible root's complete current hierarchy |
 | `out_of_date` | A directly checked collection differs from its latest confirmed or complete deposit |
+| `deposit_failed` | The latest deposit attempt failed; any earlier completed or confirmed deposit retains its own freshness status |
 | `awaiting_confirmation` | Current content has been uploaded; matching preservation has not been confirmed |
 | `local_only` | A local package matches, without confirmed remote preservation |
 | `never_deposited` | No successful direct or covering deposit exists at this destination |
@@ -121,7 +125,8 @@ record metadata:
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --history-only
 ```
 
-History-only mode never labels content `current` or `out_of_date`. Its recorded
+History-only mode can show `deposit_failed` from recorded job history, but never
+labels content `current` or `out_of_date`. Its recorded
 confirmations and delivery states remain available, but freshness is explicitly
 `not_checked`. Collections with no history can still be identified, unless
 coverage information is damaged. This mode does not require a working Python
