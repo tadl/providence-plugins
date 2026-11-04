@@ -6,6 +6,10 @@ then arrange a receiving-service pilot with the preservation coordinator.
 
 ## Local mode on an isolated catalogue
 
+- Replace example institution values and choose `generic` or `mdpn` deliberately.
+  For MDPN, use your own approved member name from the bundled profile. For a
+  different receiver, agree the generic metadata layout, grouping, part size,
+  authentication, transfer/finalization and AU ingest workflow with its operators.
 - Run server CLI checks as the web/queue account using `sudo -u www-data --`;
   substitute the actual service account if different. Verify PHP/Python versions
   and extensions for that account and the web runtime.
@@ -33,7 +37,8 @@ then arrange a receiving-service pilot with the preservation coordinator.
   while a job is queued and verify it fails without producing a new baseline.
 - Verify native read-only transaction behavior and clean rollback on failure.
 - Validate generated bags using an independent BagIt implementation and compare
-  the runtime MDPN requirements with the coordinator's current settings.
+  the selected profile with the receiving service's requirements. For MDPN,
+  compare its bundled requirements with the coordinator's current settings.
 - Change labels, attributes, hierarchy, relation type/rank/attributes and files;
   remove a member; create supplements. Inspect the complete change inventory.
 - Run a scan on unchanged content and verify no changes; request a new full
@@ -56,9 +61,10 @@ then arrange a receiving-service pilot with the preservation coordinator.
 
 ## Provider pilot after local acceptance
 
-- Obtain MDPN's sender-IP allowance and independently verify its SSH host key.
+- Obtain the receiver's sender-IP allowance where required and independently
+  verify its SSH host key.
 - Confirm path, permissions, `.partial` exclusion, rename/finalization behavior,
-  compact package naming, the blank MDPN group identifier, one AU per tar,
+  compact package naming, the selected profile's grouping convention, one AU per tar,
   bag metadata and duplicate-submission handling.
 - Provision the private credentials file outside the web root and Git, mode
   0600, with the service account as its only reader.
@@ -71,8 +77,8 @@ then arrange a receiving-service pilot with the preservation coordinator.
   advance. Reconcile parts already consumed by ingestion before retrying.
 - Have node hosts crawl the new AUs. Record actual node/crawl evidence manually;
   a successful staging upload must remain labelled unconfirmed until then.
-- Check new MDPN bags against the DART3 metadata layout: the profile's optional
-  fields remain present when blank, `External-Identifier` is line 11, and
+- When using the MDPN profile, check bags against the DART3 metadata layout:
+  optional fields remain present when blank, `External-Identifier` is line 11, and
   recovery provenance is in `data/metadata/snapshot.json`. Verify the displayed manifest
   heading and AU title both identify the actual bag.
 - Retrieve the bags from preservation storage and repeat offline recovery and

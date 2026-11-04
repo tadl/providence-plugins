@@ -29,7 +29,7 @@ final class Config {
 		return $bytes;
 	}
 	public function profile() : array {
-		$name = $this->get('bagit_profile','mdpn');
+		$name = $this->get('bagit_profile','generic');
 		if ($name === 'mdpn') { return json_decode(file_get_contents(dirname(__DIR__).'/profiles/mdpn.json'),true,512,JSON_THROW_ON_ERROR); }
 		if ($name !== 'generic') { throw new Failure('bagit_profile must be mdpn or generic.'); }
 		return ['name' => 'Generic LOCKSS staging','bagit_version' => '1.0','serialization' => 'application/tar','manifest_algorithm' => 'sha256',

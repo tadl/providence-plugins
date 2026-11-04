@@ -6,9 +6,10 @@ packages uploaded original files together with collection, object and
 representation metadata, relationships, and the configuration needed to
 interpret that metadata. Staff manage deposits from the collection editor.
 
-The plugin produces BagIt 1.0 packages compatible with the MDPN DART3 profile.
-It performs the packaging itself; DART does not need to be installed. Each tar
-archive is one bag and becomes a separate LOCKSS Archival Unit (AU).
+The plugin produces BagIt 1.0 packages using either the MDPN DART3 profile or
+a generic profile for an agreed LOCKSS staging workflow. It performs the
+packaging itself; DART does not need to be installed. Each tar archive is one
+bag, intended for preservation as a separate LOCKSS Archival Unit (AU).
 
 **Current status: pilot implementation.** The recovery tool reconstructs
 original files and a complete catalogue snapshot. It does not yet import that
@@ -302,7 +303,8 @@ commands.
 The following sections are for the system administrator responsible for the
 Providence server, private preservation storage, processing schedule and SFTP
 connection. Installing the plugin does not initiate a deposit or transfer.
-The shared configuration defaults to disabled and local delivery.
+The shared configuration defaults to disabled, generic packaging and local
+delivery. It supplies no institution identity or receiving-service credentials.
 
 ### Requirements
 
@@ -328,6 +330,46 @@ SFTP additionally needs Providence's phpseclib installation, an approved sender
 IP where required, an independently verified server host-key fingerprint, a
 private credentials file and an agreed upload/finalization convention.
 
+### Choose a receiving service and profile
+
+The plugin name does not restrict it to MDPN or TADL. Keep the installed
+directory and `mdpn-preservation-*` command names unchanged for either profile.
+Configure your own institution identity and choose the profile required by your
+receiving service:
+
+| Profile | Intended use and requirements |
+| --- | --- |
+| `generic` (default) | A receiver that agrees to accept this plugin's BagIt 1.0 tar packages, SHA-256 manifests and metadata layout. Any institution name is accepted. This does not configure a LOCKSS network, an ingest service or AU definitions. |
+| `mdpn` | An MDPN deposit using the bundled organization allowlist and DART3 metadata layout. Select your own institution's exact approved name from `profiles/mdpn.json`; confirm it and the endpoint with MDPN. |
+
+`organization_code` is your institution's compact package-name prefix in either
+mode: two to twelve uppercase letters or digits, without spaces or punctuation.
+It is separate from the full `source_organization` name. Coordinate prefixes
+when separate catalogues send packages to the same receiving service.
+
+Start from the [generic local example](conf/plugin.local.conf.example). For an
+MDPN installation, change the following values as part of that configuration:
+
+```ini
+bagit_profile = mdpn
+organization_code = EXAMPLE
+source_organization = REPLACE_WITH_YOUR_APPROVED_MDPN_MEMBER_NAME
+```
+
+Replace both illustrative identity values. TADL's name and organization code
+are not defaults for other MDPN members. An unlisted organization name is
+rejected in MDPN mode; arrange an approved profile update with the coordinator.
+
+`bagit_profile` controls packaging rules. `destination_id` is a local name for
+tracking delivery history, not a provider selector. Host, directory, credentials
+and part size must be agreed and configured separately. A receiver that requires
+a different BagIt version, checksum algorithm, mandatory tag set, authentication
+method or transfer API needs an implementation change and compatibility testing.
+
+When updating an existing MDPN installation, keep `bagit_profile = mdpn` and its
+institution identity explicit in `plugin.local.conf`; preserve that file during
+source updates. The new shared defaults do not select MDPN on the site's behalf.
+
 ### Install for local testing
 
 Run installed-server CLI commands from the Providence root using
@@ -348,9 +390,11 @@ is separate from the Unix account selected by sudo.
    every value, including `enable = 1`. That real local file is ignored by Git
    and must be preserved during updates. Keep `transport = local` for the first
    pilot.
-4. For MDPN, use `bagit_profile = mdpn`, `organization_code = TADL` and the exact
-   `source_organization = Traverse Area District Library`. Set the real contact
-   defaults locally. The synthetic example uses the generic profile instead.
+4. Choose `generic` or `mdpn` as described above, and replace the example
+   organization code and name with your own institution's values. Leave contact
+   defaults blank to request them on each form, or set your own defaults.
+   Verify the state path, Python interpreter and service account on this server.
+   Keep the receiver's settings separate from the institution identity.
 5. Clear Providence's application cache after copying and enabling the plugin,
    before granting roles or starting preservation jobs. Follow the
    [cache maintenance guidance](#application-cache-after-installation-or-updates)
@@ -400,27 +444,50 @@ separate integration review.
 Do not start a copied development checkout against production connection
 settings. Source tests below never bootstrap Providence or read `setup.php`.
 
+### Adapting to your Providence catalogue
+
+The plugin reads native metadata definitions and exports the scoped records'
+complete metadata, rather than relying on TADL's editor layout or a fixed CSV
+field mapping. Review collection membership using your installation's
+`ca_objects_x_collections_hierarchy_enabled` and
+`ca_objects_x_collections_hierarchy_relationship_type` settings. These belong
+to Providence's application configuration, not `plugin.local.conf`. If hierarchy
+mode is enabled, a valid membership relationship type must be configured. If
+no type is configured and hierarchy mode is disabled, all object-to-collection
+relationship types count as membership. Verify scope on a small test collection.
+
+The editable deposit description starts with the native collection title. Its
+additional narrative fields use element codes `description`,
+`collection_scope_content` and `provenance` when present and applicable. A site
+using different element codes can enter its description in the form; absent
+autofill fields do not exclude any metadata from the preserved snapshot.
+Custom media-processing and multifile import procedures also need the review
+described under [permission and media-processing details](#permission-and-media-processing-details).
+
 ### Configuration reference
 
 Put installation-specific settings in `conf/plugin.local.conf`. Settings omitted
 there inherit `conf/plugin.conf`; preserve the local file during updates. The
 [example local configuration](conf/plugin.local.conf.example) contains synthetic
-values for review by the administrator.
+values for review by the administrator. These files use Providence's native
+configuration syntax: `#` comments and unquoted scalar values, including names
+containing spaces. Keep SFTP usernames and passwords in the separate JSON
+credentials file.
 
 | Setting | Purpose |
 | --- | --- |
-| `enable` | Enables the plugin when set to `1`. |
+| `enable` | Defaults to `0`; set to `1` after reviewing the local configuration. |
 | `state_directory` | Canonical absolute path to private local storage, outside the web root and source repository. |
 | `python_binary` | Absolute path to the Python 3 interpreter used by the worker. |
-| `organization_code` | Two to twelve uppercase letters or numbers used at the start of package names. |
-| `source_organization` | Organization name for bag metadata; must exactly match the MDPN profile when that profile is selected. |
+| `organization_code` | Required local identity: two to twelve uppercase letters or numbers used at the start of package names. No shared default. Keep it stable after production deposits begin. |
+| `source_organization` | Default for the required organization field in the form. No shared default; must exactly match the MDPN profile when that profile is selected. |
 | `contact_name`, `contact_email` | Optional defaults for the required contact fields in the form. |
-| `bagit_profile` | `mdpn` for MDPN's profile and organization list; `generic` for compatible alternative services. |
+| `bagit_profile` | Defaults to `generic` for an agreed compatible service; explicitly select `mdpn` for MDPN's profile and organization list. |
 | `part_size_bytes` | Maximum physical tar size in bytes; defaults to `50000000000`. Use a positive whole number without units or commas. |
 | `transport` | `local` to create packages without transfer; `sftp` to deliver them to staging. |
-| `destination_id` | Stable local name for the destination, separate from collection and bag identifiers. |
-| `sftp_host`, `sftp_port`, `sftp_directory` | Receiver hostname, port and writable path as seen by the SFTP account. |
-| `sftp_host_key_sha256` | Independently verified receiver host-key fingerprint. |
+| `destination_id` | Stable local name, using 1–64 letters, digits, underscores or hyphens; defaults to `local-testing`. Separate from collection and bag identifiers. |
+| `sftp_host`, `sftp_port`, `sftp_directory` | Receiver DNS hostname or IPv4 address, port (default `22`) and writable path as seen by the SFTP account. IPv6 literals are not supported. |
+| `sftp_host_key_sha256` | Independently verified OpenSSH `SHA256:` fingerprint without trailing `=` padding; not a known_hosts public-key line. |
 | `credentials_file` | Path to the separate private JSON file containing the SFTP username and password. |
 
 Invalid part-size settings fail before collection capture or original-file
@@ -502,6 +569,8 @@ state backups.
 The credentials file uses JSON so punctuation in generated passwords is
 unambiguous. Parse errors produce a generic message, never a configuration
 parser dump of password text. The ignored `plugin.local.conf` stores its path.
+Only username/password authentication is implemented; SSH private-key and agent
+authentication are not configuration options in this version.
 
 **Retry transfer of retained package** reuses the same verified archives and
 identifiers, including already completed parts. Capture/validation failures
@@ -542,12 +611,27 @@ Set the organization code/contact defaults, a stable destination ID, verified
 SFTP endpoint and private credentials. Select `bagit_profile = generic` when
 the destination does not use MDPN's organization allowlist.
 
+Generic bags carry the configured organization/contact values, external package
+identifier, stable internal source identifier, collection group, part count,
+bagging date/software and payload oxum, plus the description when supplied.
+They do not claim MDPN's profile URI, DART3 field order or MDPN's optional blank
+fields and size tag. The generic group value is the snapshot's permanent
+collection-group identifier. Review this actual output with the receiver before
+using it as a production format. A full first deposit is required at each new
+destination; changing profiles alone does not create a new destination identity.
+Agree any profile change with the receiver and create a new full deposit when
+adopting the changed format.
+
 The receiving workflow must accept BagIt 1.0, UTF-8 tags, SHA-256 payload and tag
 manifests, uncompressed tar serialization and this package layout. It must be
 configured to ingest and expose those packages as its own LOCKSS AUs. SFTP
 deposits are sent to a staging workflow, not directly to a
 LOCKSS node. Arbitrary custom BagIt profiles, other checksum algorithms, S3 and
 provider-specific ingest APIs are not implemented.
+Agree a part-size limit with that receiver; 50 GB is the supplied starting
+value, not a universal LOCKSS requirement. Arrange staging processing, AU
+creation, crawls and preservation confirmation with its operators. The plugin
+does not discover those services or poll LOCKSS nodes for acceptance.
 
 `profiles/mdpn.json` records the required fields and organization allowlist from
 the supplied MDPN DART settings. It explicitly selects BagIt 1.0, correcting the

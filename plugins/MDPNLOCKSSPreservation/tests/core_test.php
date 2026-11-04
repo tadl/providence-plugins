@@ -75,8 +75,13 @@ try {
 	check($config->bagMetadata(['description' => '<p>Safe text.</p><script>unwanted()</script><style>unwanted</style>'])['External-Description'] === 'Safe text.','Description text does not retain active HTML or scripts');
 	fails(function() use ($config) { $config->bagMetadata(['description' => "Invalid\x00text"]); },'control characters');
 	$narrative->fields = []; check(Config::defaultDescription($narrative) === 'Fictional collection','Sites without those narrative fields still receive the title');
-	$mdpn = new Config(['source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org']);
+	$outside = ['organization_code' => 'EXAMPLE','source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org'];
+	check((new Config($outside))->bagMetadata([])['Source-Organization'] === 'Example Archive','The default generic profile accepts an institution outside the MDPN membership list');
+	$mdpn = new Config(array_merge($outside,['bagit_profile' => 'mdpn']));
 	fails(function() use ($mdpn) { $mdpn->bagMetadata([]); },'permitted organization');
+	$member = $mdpn->profile()['source_organizations'][0];
+	check((new Config(array_merge($outside,['bagit_profile' => 'mdpn','source_organization' => $member])))->bagMetadata([])['Source-Organization'] === $member,'MDPN configuration accepts the selected member institution rather than requiring TADL');
+	fails(function() { (new Config(['bagit_profile' => 'unknown']))->profile(); },'mdpn or generic');
 	foreach ([
 		['application/pdf','image/jpeg','6','','document_page'],
 		['application/pdf','image/jpeg','0','caDocumentPreviewSynthetic_0.jpg','document_page'],
