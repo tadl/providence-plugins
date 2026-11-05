@@ -1,0 +1,7 @@
+enable = 0
+provider_key = objects
+item_acl_policy = native
+public_base_url = https://catalogue.example.org
+media_base_url = https://collections.example.org
+allowed_media_hosts = [collections.example.org]
+repository_name = Example Library Digital Collections

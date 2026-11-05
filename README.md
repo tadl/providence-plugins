@@ -12,6 +12,7 @@ Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-
 | [collectionSibling](plugins/collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
 | [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collections/objects to assigned roots, with optional native ACL search/browse segmentation |
 | [representationFilenameIdno](plugins/representationFilenameIdno/README.md) | Derive representation identifiers and blank preferred labels from uploaded filenames |
+| [publicOai](plugins/publicOai/README.md) | Public-only MODS and Dublin Core metadata for the native OAI-PMH provider; requires the separately reviewed provider patch |
 
 The collection access plugin's optional native ACL mode filters collections and
 objects while keeping authorities global. It requires a separately reviewed
@@ -48,6 +49,11 @@ and collection ACL standalone PHP suites, run preservation PHP/Python suites,
 and check Git whitespace. Python 3.9+ is required for preservation checks. `--browser`
 also runs Chromium interaction checks. The filename plugin currently has no
 standalone behavior suite; PHP lint does not verify its live behavior.
+
+The public OAI suites check configuration, publication eligibility and both XML
+formats with synthetic data and offline schemas. They do not bootstrap a live
+catalogue. See its README for the separately maintained native provider patch
+and deployment/harvester acceptance requirements.
 
 GitHub Actions runs these checks, including browser interactions, on pushes and
 pull requests against a pinned Providence 2.0.10 reference. The workflow only

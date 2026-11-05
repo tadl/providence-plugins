@@ -1,0 +1,41 @@
+# Merge into the installation's local oai_provider.conf after reviewing the
+# target-specific native provider patch. This is not an enabled deployment.
+enabled = 0
+maxRecordsPerRequest = 50
+
+providers = {
+	objects = {
+		name = Example Library Digital Collections,
+		admin_email = metadata@example.org,
+		query = *,
+		restrictToTypes = [],
+		excludeTypes = [],
+		setFacet = ,
+		publicObjectsWithRepresentations = 1,
+		# Must match publicOai's item_acl_policy after public policy review.
+		publicItemACLPolicy = native,
+		requireRecordInfoHook = 1,
+		formats = {
+			mods = {
+				mapping = tadl_public_oai_mods,
+				schema = https://www.loc.gov/standards/mods/v3/mods-3-8.xsd,
+				metadataNamespace = http://www.loc.gov/mods/v3
+			},
+			oai_dc = {
+				mapping = tadl_public_oai_dc,
+				schema = http://www.openarchives.org/OAI/2.0/oai_dc.xsd,
+				metadataNamespace = http://www.openarchives.org/OAI/2.0/oai_dc/
+			}
+		},
+		default_format = oai_dc,
+		# Native configuration key has this spelling.
+		identiferNamespace = collections.example.org,
+		dont_enforce_access_settings = 0,
+		public_access_settings = [1],
+		privileged_access_settings = [1],
+		privileged_networks = [],
+		dont_cache = 1,
+		show_deleted = 0,
+		dontFilterByACL = 0
+	}
+}

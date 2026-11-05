@@ -25,6 +25,9 @@ TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/te
 TEST_PYTHON_BINARY="$(command -v python3)" php plugins/MDPNLOCKSSPreservation/tests/report_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php
 python3 -B -m unittest discover -s plugins/MDPNLOCKSSPreservation/tests -p 'test_*.py'
+php plugins/publicOai/tests/plugin_test.php
+php plugins/publicOai/tests/catalogue_test.php
+php plugins/publicOai/tests/metadata_test.php
 if [[ "${1:-}" == "--browser" ]]; then
     node plugins/collectionSibling/tests/browser_test.js
 fi

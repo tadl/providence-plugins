@@ -1,0 +1,8 @@
+"Rule type"	"ID"	"Parent ID"	"Element"	"Source"	"Options"	"Notes"	"Original values"	"Replacement values"
+"Setting"	"code"	"tadl_public_oai_mods"	""	""	""	""	""	""
+"Setting"	"name"	"Public OAI mods"	""	""	""	""	""	""
+"Setting"	"table"	"ca_objects"	""	""	""	""	""	""
+"Setting"	"exporter_format"	"XML"	""	""	""	""	""	""
+"Mapping"	"1"	""	"mods:mods"	""	"{}"	"Placeholder only: publicOai replaces this tree with authorized public metadata."	""	""
+"Constant"	"2"	"1"	"@xmlns:mods"	"http://www.loc.gov/mods/v3"	"{}"	""	""	""
+"Mapping"	"3"	"1"	"mods:identifier"	"ca_objects.object_id"	"{}"	"No descriptive fields are read by the placeholder mapping."	""	""
