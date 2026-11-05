@@ -29,6 +29,9 @@ php plugins/publicOai/tests/plugin_test.php
 php plugins/publicOai/tests/configuration_test.php
 php plugins/publicOai/tests/catalogue_test.php
 php plugins/publicOai/tests/metadata_test.php
+php plugins/publicOai/tests/provider_test.php
+php plugins/publicOai/tests/provider_configuration_test.php
+php plugins/publicOai/tests/controller_test.php
 if [[ "${1:-}" == "--browser" ]]; then
     node plugins/collectionSibling/tests/browser_test.js
 fi

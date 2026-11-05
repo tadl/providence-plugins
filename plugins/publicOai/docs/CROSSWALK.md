@@ -54,10 +54,17 @@ control characters or invalid UTF-8. It removes characters forbidden by XML 1.0
 from text and supplies unescaped text to Providence's native XML formatter.
 The formatter owns XML escaping; values must not be pre-escaped.
 
-## Native exporter definitions
+## Provider and optional native exports
+
+The plugin-owned OAI provider obtains the authorized catalogue DTO, renders it
+with `Metadata::render()` and serializes the resulting tree through Providence's
+stock XML formatter. It does not use the native OAI provider, core hooks, stored
+exporter mappings or a local core patch. Both metadata formats use this same
+publication path.
 
 `mappings/tadl_public_oai_mods.tsv` and `mappings/tadl_public_oai_dc.tsv` define
-native XML exporters. They intentionally read only the object primary key.
+optional native XML exporters for staff-initiated exports. They intentionally
+read only the object primary key.
 The plugin's narrowly scoped `hookExportRecord` replaces their placeholder tree
 with the authorized DTO rendered by `Metadata::render()`. They do not contain
 unrestricted related-record traversals or media templates. If the plugin is
@@ -66,8 +73,9 @@ disabled, they cannot fall back to an expansive metadata dump.
 Providence's native exporter loader supports delimited text. TSV is intentional:
 the parser detects CSV by the source filename's `.csv` suffix, whereas a web
 upload can receive a temporary filename without that suffix. The native importer
-replaces an exporter with the same code; importing these mappings is a separate
-installation step and must be done only after reviewing the existing mappings.
+replaces an exporter with the same code. Importing these mappings is an optional,
+separate database-write step after reviewing existing definitions; it is not
+part of enabling the plugin's OAI transport.
 
 ## Validation and limits
 

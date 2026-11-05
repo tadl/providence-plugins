@@ -1,12 +1,18 @@
 # Public OAI metadata
 
-Public MODS 3.8 and simple Dublin Core exports for the native Providence OAI-PMH
-provider. One object remains one OAI item; both formats use the same eligibility
-policy and header identifier. This plugin does not implement a second OAI server.
+A plugin-owned OAI-PMH provider for public MODS 3.8 and simple Dublin Core
+metadata. One object remains one OAI item; both formats use the same eligibility
+policy, header identifier and datestamp. The provider, catalogue adapter and
+metadata renderer live in this plugin. Providence core remains unmodified.
 
-The plugin defaults to disabled. Source installation and source-control pushes
-do not enable a feed. No catalogue records, access flags or representation files
-are changed by the plugin.
+Developed against Providence 2.0.10 and PHP 8.3+. The native service dispatcher
+loads the plugin controller at `/service.php/publicOai/Repository/Index`.
+Providence's stock OAI provider is separate and can remain disabled; this plugin
+does not use its protocol implementation, configuration or identifier helper.
+
+Both metadata export and the OAI transport default to disabled. Installing or
+pushing source does not enable a feed. The plugin does not change catalogue
+records, access flags or representation files.
 
 ## Publication contract
 
@@ -16,73 +22,87 @@ and metadata/media bundle access are checked separately. A staff login never
 enlarges the exported audience.
 
 The default `item_acl_policy=native` additionally enforces native anonymous item
-ACLs. Some installations deliberately use Providence item ACLs only to segment
-staff editing, while their separate Pawtucket configuration publishes by public
-access flags. For that verified public policy, explicitly select `public_flags`
-in both plugin and provider configuration. The service rejects mismatched
-policies. Neither mode changes stored ACLs or backend staff permissions. Private
-objects and representations remain excluded in both modes.
+ACLs. Some installations deliberately use Providence item ACLs to segment staff
+editing, while their separate Pawtucket configuration publishes by public access
+flags. Select `public_flags` only after verifying that publication policy.
+Neither mode changes stored ACLs or backend staff permissions. Private objects
+and representations remain excluded in both modes.
 
-Only approved descriptive fields and anonymously readable related records are
-exported. Public objects with only private representations are excluded. A
-private object with a public representation is excluded. Mixed-access objects
+Only approved descriptive fields and readable related records are exported.
+Objects with only private representations are excluded. Mixed-access objects
 export their public representations only. Private paired JPEG/PDF copies remain
-private; a stored representation does not qualify solely because it exists.
+private; a representation does not qualify solely because a database row exists.
+See [the crosswalk](docs/CROSSWALK.md) for the field allowlist and fidelity limits.
 
-Media URLs must use explicitly allowed HTTPS hosts. The configured public
-Pawtucket frontend supplies object, representation-viewer and related-record
-landing URLs; direct original/thumbnail URLs have separate technical purposes.
-When Providence and Pawtucket expose the same media under different URL paths,
-configure the paired `media_source_url_prefix` and `media_public_url_prefix`.
-The adapter translates original/preview URLs only within that exact source path
-and validates the resulting public host. Files and native media-volume settings
-are unchanged. The final host allowlist should contain only intended public
-media hosts; unmatched backend URLs then fail publication checks.
-File paths, internal
-notes, preservation state and unrestricted attribute dumps are not exported.
-See [the field crosswalk](docs/CROSSWALK.md) for mappings and fidelity limits.
+The public Pawtucket frontend supplies object, representation-viewer and related
+record links. Original-file and thumbnail links use its public media URLs too.
+When Providence and Pawtucket expose shared media under different origins or
+paths, configure the paired `media_source_url_prefix` and
+`media_public_url_prefix`. The adapter translates only that exact source path,
+preserves the hash/filename suffix and validates the resulting public host.
+The final host allowlist should contain only intended public media hosts;
+unmatched backend URLs then fail publication checks. Files and native
+media-volume settings are unchanged. File paths, staff notes and preservation
+state are not exported.
 
-## Native provider requirement
+## Configuration and endpoint
 
-Developed against Providence 2.0.10 and PHP 8.3+. The unmodified 2.0.10 provider
-does not provide the complete publication contract. The separately maintained
-workspace `patches/providence/oai-public-provider.patch` and its isolated checker
-must be reviewed and verified against the target before activation. They are
-outside this source repository. Preserve them with the CollectiveAccess
-workspace; a standalone clone alone is not an installation package.
+Copy the two examples to installation-local files:
 
-The patch adds an opt-in public-object mode and a native `hookOAIRecordInfo`
-extension. This plugin supplies the final metadata eligibility and dependency
-datestamp through that hook. The native exporter's existing `hookExportRecord`
-receives an access-checked metadata tree; its XML formatter handles serialization.
-The two small TSV mapping definitions never traverse record metadata themselves.
+- `conf/plugin.local.conf`: metadata publication, audience policy, frontend and
+  media URLs; set `enable=1` only at authorized activation.
+- `conf/oai.local.conf`: transport settings; set `oai_enabled=1` only at
+  authorized activation. Configure `oai_base_url`, `identifier_namespace`,
+  `admin_email`, `earliest_datestamp`, `records_per_page` and `token_ttl`.
 
-## Formats and identifiers
+Both switches must be enabled for the provider to disseminate records. Preserve
+these local files during plugin updates; never commit them. The shared source
+files `plugin.conf` and `oai.conf` stay disabled.
 
-The native provider key is `objects`. These are example harvesting links, to be
-replaced with the installation's public Providence hostname:
+For a new installation, the canonical `oai_base_url` can be the plugin route.
+Example harvest links are:
 
-- `https://collections.example.org/service.php/OAI/objects?verb=ListRecords&metadataPrefix=mods`
-- `https://collections.example.org/service.php/OAI/objects?verb=ListRecords&metadataPrefix=oai_dc`
+- `https://collections.example.org/service.php/publicOai/Repository/Index?verb=ListRecords&metadataPrefix=mods`
+- `https://collections.example.org/service.php/publicOai/Repository/Index?verb=ListRecords&metadataPrefix=oai_dc`
 
-The format prefixes select mappings `tadl_public_oai_mods` and
-`tadl_public_oai_dc`. `ListMetadataFormats` advertises both. Basic Dublin Core
-remains available as required by OAI-PMH; the richer MODS description preserves
-roles, date types, authority distinctions and related-item structure.
+An installation can retain an already shared URL such as
+`/service.php/OAI/objects` with an exact internal server/proxy alias to the plugin
+route. Preserve the HTTP method, POST body and original query arguments, and
+forward the rewritten URI so the backend dispatches the plugin controller.
+Configure `oai_base_url` to that stable public endpoint; it is independent of
+the internal route and the frontend URLs contained in metadata. No HTTP redirect
+or core-controller replacement is required. See [installation](docs/INSTALLATION.md).
 
-Use a new installation-specific OAI namespace with stable CA object IDs. Never
-reuse a previous repository's namespace while substituting unrelated numeric
-IDs. The metadata carries catalogue and legacy identifiers separately from the
-OAI header identifier. Switching format does not create a new OAI item.
+`ListMetadataFormats` advertises both prefixes. Basic Dublin Core provides the
+required OAI-PMH format; MODS preserves more roles, date types, authority
+information and related-item structure. The OAI provider renders metadata
+directly and does not require native exporter mappings or mapping imports.
+The included TSV mappings are optional for staff-initiated native exports.
 
-Collection sets are intentionally unsupported initially. Collection context is
-part of metadata. The first version advertises `deletedRecord=no`: it does not
-maintain a publication ledger or durable tombstones. An object that becomes
-private or loses its last public usable representation stops appearing. Agree
-an explicit full-replacement reconciliation workflow with the harvester before
-cutover; incremental harvesting alone cannot reliably remove those old records.
+## Identifiers and harvest behavior
 
-## Checks
+Choose an organization-controlled, permanent identifier namespace for a new
+repository. Headers use `oai:<namespace>:<Providence object ID>`; catalogue and
+legacy identifiers remain separate metadata values. Never reuse an Omeka
+namespace with unrelated Providence numeric IDs. Once Providence identifiers
+have been issued, retain the namespace when changing the provider's transport
+or internal route. Switching metadata format does not create a new OAI item.
+
+All six OAI-PMH verbs are handled. Collection sets are unsupported;
+`ListSets` returns `noSetHierarchy`. Collection context is present in metadata.
+The provider advertises `deletedRecord=no`: an object that becomes private or
+loses its last public usable representation stops appearing. Agree a full
+replacement/reconciliation workflow with the harvester before cutover;
+incremental harvesting alone cannot remove previously harvested withdrawals.
+
+Date bounds are inclusive UTC values. Pagination freezes candidate IDs and
+rechecks current publication on every page. Opaque cache-backed tokens are bound
+to the configuration, format and verb, with an explicit expiry; the default
+lifetime is one day. Metadata and related-media changes contribute to record
+datestamps. Mapping/configuration changes require a replacement harvest unless
+a deliberate metadata-revision policy accounts for them.
+
+## Checks and upgrades
 
 From the repository root:
 
@@ -90,12 +110,14 @@ From the repository root:
 bash scripts/check.sh
 ```
 
-The public OAI suites use synthetic catalogue records, permission decisions and
-URLs. They exercise metadata serialization through the trusted native XML
-formatter and validate both schemas offline. No installation setup or database
-is loaded. The shared CI reference checkout includes the required native files.
-The separate native provider patch checker must also pass before installation.
+Synthetic suites exercise the plugin's real provider, argument parsing,
+publication decisions and metadata serialization, including offline OAI-PMH,
+MODS and DC schema validation. No installation setup or database is loaded.
+Live routing, media delivery, complete harvesting and downstream reconciliation
+remain separate acceptance checks.
 
-See [installation and acceptance](docs/INSTALLATION.md). Live schema/mapping
-validation, a complete harvest, and downstream replacement remain explicit
-acceptance steps; synthetic tests do not establish those results.
+Upgrade Providence normally while preserving the custom plugin directory and
+its local configuration, as for the other application plugins. Recheck service
+routing, native catalogue APIs, the XML formatter and anonymous publication
+against the new version. No local core patch needs to be reapplied. Retain the
+server alias and configured canonical base URL when preserving a shared endpoint.

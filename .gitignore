@@ -1,5 +1,6 @@
 .DS_Store
 **/conf/plugin.local.conf
+**/conf/oai.local.conf
 **/node_modules/
 **/test-results/
 .reference/

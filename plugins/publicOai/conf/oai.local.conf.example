@@ -1,0 +1,8 @@
+oai_enabled = 0
+# Use the stable public URL, including any exact front-proxy alias.
+oai_base_url = https://collections.example.org/service.php/publicOai/Repository/Index
+identifier_namespace = collections.example.org
+admin_email = metadata@example.org
+earliest_datestamp = 2000-01-01T00:00:00Z
+records_per_page = 50
+token_ttl = 86400

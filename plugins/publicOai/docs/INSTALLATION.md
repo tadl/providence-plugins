@@ -1,90 +1,138 @@
 # Installation and acceptance
 
-This runbook describes production-affecting operations. Execute only after
-explicit deployment authorization. Keep the current feed serving harvesters
-until the new provider and downstream reconciliation have been accepted.
+This runbook describes production-affecting operations. Execute them only after
+explicit deployment authorization. Keep existing harvesting continuity until
+routing, metadata and downstream reconciliation have been accepted.
 
 ## Prepare and verify
 
-1. Verify the target Providence/PHP versions and current source/configuration.
-   Review the separately supplied native provider patch and run its isolated
-   behavioral checker against the exact candidate. Preserve existing core
-   changes; do not replace a whole upstream tree.
-2. Review the public field crosswalk against the installation's live schema.
-   Compare representative current source and destination records. Pay attention
-   to repeated identifiers, dates, creator roles, rights, Source and Relation.
-   A richer export cannot recover metadata absent from the destination.
-3. Review the canonical frontend and media URLs, public media hosts, repository
-   name, repository contact and new OAI identifier namespace. Use no internal
-   hostnames in emitted links. Verify original and preview links anonymously.
-   Set `public_base_url` to the public Pawtucket interface. Representation viewer
-   links use its supported `?representation_id=ID` object-page parameter.
-   Originals and previews should use the public frontend's media URL path too.
-   If native Providence URLs have a different origin/path, configure the paired
-   `media_source_url_prefix` and `media_public_url_prefix`. Verify that the public
-   alias serves the same files before activation. Restrict allowed_media_hosts
-   to final public hosts; source URLs are translated before that final check.
-   Verify whether that public frontend enforces anonymous item ACLs. Keep
-   `item_acl_policy=native` / `publicItemACLPolicy=native` by default; use matching
-   `public_flags` values only for the explicitly reviewed publication policy
-   where staff backend ACLs do not govern public display. Do not change stored
-   ACLs or staff permissions to enable OAI.
-4. Agree with the harvester on the replacement/reconciliation procedure for
-   old identifiers and withdrawn records. This version has no tombstones and
-   no OAI collection sets.
+1. Verify the target Providence/PHP versions and run the source checks against
+   that version. Keep Providence core unchanged. The plugin uses the supported
+   application-plugin controller route and stock framework/catalogue APIs.
+2. Compare the public field crosswalk with the installation's live schema and
+   representative source/destination records. Review repeated identifiers,
+   dates, creator roles, rights, Source and Relation. A richer schema cannot
+   recover values absent from Providence; repairs are separate work.
+3. Review the public Pawtucket and media URLs. Set `public_base_url` to the
+   frontend, rather than the staff catalogue. Representation viewers use its
+   supported `?representation_id=ID` object-page parameter. Original and preview
+   URLs should use the public media alias. Where native URLs differ, configure
+   both `media_source_url_prefix` and `media_public_url_prefix`, verify that the
+   public alias serves the same files, and allow only final public media hosts.
+4. Verify the frontend's intended publication policy. Keep
+   `item_acl_policy=native` by default; select `public_flags` only where backend
+   item ACLs govern staff scope separately from public access flags. Anonymous
+   type/source and bundle checks still apply. Do not change stored ACLs or staff
+   permissions to make an OAI record visible.
+5. Choose the canonical OAI URL, public repository contact, permanent identifier
+   namespace, earliest supported metadata datestamp, page size and token expiry.
+   Historical dates describing the object are not OAI modification datestamps.
+   Preserve already issued Providence identifiers when replacing a transport.
+6. Agree on old-record replacement, withdrawals and reconciliation with the
+   harvester. This provider advertises no tombstones and supplies no sets.
 
-## Authorized installation
+## Install the plugin
 
-Keep a target-specific backup of the files/configuration being changed outside
-the web root. Keep local configuration and catalogue/exporter definitions
-private. Preserve the old harvesting route.
+Keep target-specific source/configuration backups outside the web root. Copy
+only `publicOai/` into Providence's `app/plugins/publicOai/`. Preserve existing
+`conf/plugin.local.conf` and `conf/oai.local.conf` during updates; do not copy
+examples over working local files.
 
-Copy only `publicOai/` to Providence's `app/plugins/publicOai/`. Preserve any
-existing `conf/plugin.local.conf`. Create installation-local settings from
-`conf/plugin.local.conf.example`; fill the reviewed public URLs and hosts. Keep
-the plugin/provider disabled while installing the reviewed candidate.
+For a new installation, create the local files from
+`conf/plugin.local.conf.example` and `conf/oai.local.conf.example`. The metadata
+configuration owns the audience, public URLs and repository name. The transport
+configuration owns `oai_base_url`, `identifier_namespace`, `admin_email`,
+`earliest_datestamp`, `records_per_page` and `token_ttl`.
 
-Apply the separately verified native provider patch narrowly. Import each TSV
-as an XML export mapping through Providence's mapping loader. The native command
-is `support/bin/caUtils load-export-mapping --file=/absolute/path/to/mapping.tsv`;
-run it as the normal application account. **Mapping import writes the database
-and replaces an existing exporter with the same code.** Inspect/preserve existing
-mapping definitions before importing; never use this command as a read-only test.
+Keep `enable=0` and `oai_enabled=0` while preparing the candidate. Both are needed
+for publication. Shared source defaults remain disabled. These two private
+configuration files are sufficient; the plugin does not require changes to
+Providence's core OAI service or its `oai_provider.conf`.
 
-Prepare the installation's local `oai_provider.conf` override from
-`conf/oai_provider.conf.example`. Merge with existing providers intentionally;
-do not overwrite other provider configuration. Confirm the patch-required flags,
-both mapping codes, public-only mode, required policy hook, no access bypass,
-no sets and no deleted records. Enable the plugin and provider only at the
-approved activation step. Determine any cache/OPcache action from the target
-runtime; do not purge caches or restart a service as an automatic install step.
+The plugin route is:
+
+```text
+/service.php/publicOai/Repository/Index
+```
+
+Its controller uses the native service entry point and dispatcher. It responds
+as XML without borrowing the signed-in user's publication rights. Do not route
+anonymous harvesters through the staff `index.php` login flow.
+
+For an installation that does not otherwise use the stock OAI provider, leave
+that provider globally disabled in its ordinary local configuration. The plugin
+transport has its own configuration and does not read native provider mappings.
+Do not enable an obsolete native provider merely to retain its URL.
+
+## Preserve an existing public endpoint
+
+If `/service.php/OAI/objects` has already been shared, keep it as the configured
+`oai_base_url`. Add an exact internal server/proxy alias from that path to
+`/service.php/publicOai/Repository/Index`. Scope it to the intended virtual host
+and endpoint; preserve other service routes.
+
+The proxy/backend must receive the rewritten URI, including the plugin module,
+controller and action, so `REQUEST_URI`/path-info parsing dispatches the plugin
+route. Preserve the original query string, HTTP method and form-encoded POST
+body. Do not turn this into a browser redirect, drop POST data, or broaden it to
+all OAI/provider paths. The public canonical base URL in XML remains the shared
+endpoint; internal routing and the metadata's public frontend links are distinct.
+
+Validate the candidate server configuration and follow the target's normal
+activation procedure only when authorized. Check both direct plugin routing
+and the public alias anonymously. At the approved activation step, enable both
+metadata publication and the plugin transport. Determine any OPcache action from
+the actual runtime; cache purges or application restarts are not automatic steps.
+
+## Optional native exporter mappings
+
+The OAI provider does not need mapping imports. If staff also want native XML
+exports, the two TSV mappings can use the existing `hookExportRecord` extension.
+The native command is:
+
+```sh
+support/bin/caUtils load-export-mapping --file=/absolute/path/to/mapping.tsv
+```
+
+Run it as the normal application account only when that separate import is
+intended. **It writes the database and replaces an exporter with the same code.**
+Inspect/preserve existing definitions first. Never use it as a read-only test.
+The optional mappings are `tadl_public_oai_mods` and `tadl_public_oai_dc`; they do
+not add an OAI transport or enable publication.
 
 ## Acceptance
 
 Validate `Identify`, `ListMetadataFormats`, `ListSets`, `ListIdentifiers`,
-`ListRecords`, and `GetRecord` with GET and form-encoded POST. `ListSets` should
-return `noSetHierarchy`. Both metadata formats must validate against their
-advertised schemas; protocol responses must validate against OAI-PMH 2.0.
+`ListRecords` and `GetRecord` with GET and form-encoded POST, including the public
+alias. Verify the configured canonical base URL in responses. `ListSets` should
+return `noSetHierarchy`. Validate each metadata format and OAI-PMH envelope against
+its advertised schema, including error responses.
 
-Compare anonymous and authenticated-staff requests. Test public/private object
-and representation combinations, denied bundles/ACLs, deleted records, missing
-media, mixed-access multi-file objects, and direct excluded-record requests.
-No private representation URL, caption or other metadata may appear.
+Compare anonymous and authenticated-staff results. Test public/private object
+and representation combinations, denied bundles/ACLs, deleted records, absent
+media, mixed-access objects and direct excluded-record requests. No private media
+URL, caption, staff field or user information may appear. Confirm object/viewer,
+original-file and preview links use the intended public frontend/media alias;
+open representative links anonymously.
 
-Test inclusive `from` and `until` boundaries, `until` alone, repeated/resumed
-pages, expired and mismatched tokens, invalid arguments, and a full harvest.
-Reconcile complete ID counts and duplicates across MODS and Dublin Core; compare
-each format's headers and datestamps. Verify metadata changes to related public
-records/representations are discoverable. Test withdrawal and re-publication
-against the agreed downstream replacement procedure.
+Test inclusive date bounds, `until` alone, resumed/repeated pages, expired and
+mismatched tokens, duplicate/unknown arguments and a full harvest. Measure initial
+page latency and a sparse incremental request before settling page size/cadence.
+Reconcile complete IDs and duplicates across MODS and DC, comparing their headers
+and datestamps. Verify related metadata/media changes are discoverable and test
+withdrawal/republication against the downstream replacement procedure.
 
-Hand the harvester both tested URLs, the shared base URL, identifier policy,
-metadata crosswalk, known source gaps and withdrawal procedure. A successful new
-harvest alone is not proof that old or newly private records were removed.
+Give the harvester both tested format links, the shared base URL, identifier
+policy, crosswalk, known source gaps and withdrawal procedure. A successful new
+harvest alone does not prove that old or newly private records were removed.
 
-## Rollback
+## Upgrade and rollback
 
-Disable the new provider first. Restore only the reviewed source/configuration
-changes, accounting for subsequent edits. Preserve catalogue metadata and media.
-Do not restore an entire database to undo mapping installation. The legacy
-harvesting route remains available until separately authorized retirement.
+Preserve the plugin folder, its two local configurations and the exact server
+alias during normal Providence upgrades. Re-run source and integration checks
+against the new version. No patched core provider must be carried forward.
+
+To stop publication, disable the plugin transport first. Restore only reviewed
+plugin/server configuration changes, accounting for subsequent edits. Preserve
+catalogue metadata, media and existing legacy harvesting continuity. If optional
+native mappings were imported, do not restore an entire database to undo them.

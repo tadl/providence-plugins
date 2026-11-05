@@ -83,29 +83,9 @@ class SyntheticPublicOaiPlugin extends publicOaiPlugin {
 Configuration::$values = $valid;
 $plugin = new SyntheticPublicOaiPlugin(dirname(__DIR__));
 verify($plugin->checkStatus()['available'], 'Valid enabled plugin reports availability.');
-$probe = ['provider' => 'objects', 'table' => 'ca_objects', 'mapping' => 'tadl_public_oai_dc', 'record_id' => 0, 'info' => []];
-$plugin->hookOAIRecordInfo($probe);
-verify($probe['info'] === ['handled' => true, 'eligible' => false, 'datestamp' => 0], 'Readiness probe handles policy without publishing a record.');
-verify(SyntheticPublicOaiPlugin::$reads === 0, 'Readiness probe does not read a catalogue record.');
-$unrestricted = $probe;
-$unrestricted['info'] = [];
-$unrestricted['mapping'] = 'unrelated_internal_export';
-$plugin->hookOAIRecordInfo($unrestricted);
-verify($unrestricted['info'] === [], 'An unrelated exporter cannot satisfy the public metadata policy.');
-$other = ['provider' => 'other', 'table' => 'ca_objects', 'record_id' => 7, 'info' => []];
-$plugin->hookOAIRecordInfo($other);
-verify($other['info'] === [], 'Other provider scope is untouched.');
-$other = ['provider' => 'objects', 'table' => 'ca_entities', 'record_id' => 7, 'info' => []];
-$plugin->hookOAIRecordInfo($other);
-verify($other['info'] === [], 'Other record tables are untouched.');
-$other = ['provider' => 'objects', 'table' => 'ca_objects', 'record_id' => 0, 'item_acl_policy' => 'public_flags', 'info' => []];
-$plugin->hookOAIRecordInfo($other);
-verify($other['info'] === [], 'A mismatched service/plugin item policy cannot pass readiness.');
+verify(!method_exists($plugin, 'hookOAIRecordInfo'), 'The plugin has no dependency on a custom core OAI hook.');
 SyntheticPublicOaiPlugin::$record = ['id' => 7, 'modified' => 1700000000, 'titles' => ['Synthetic title'],
 	'landing_url' => 'https://catalogue.example.org/Detail/objects/7'];
-$info = ['provider' => 'objects', 'table' => 'ca_objects', 'mapping' => 'tadl_public_oai_dc', 'record_id' => 7, 'info' => []];
-$plugin->hookOAIRecordInfo($info);
-verify($info['info']['eligible'] && $info['info']['datestamp'] === 1700000000, 'Eligibility hook supplies dependency timestamp.');
 $exporter = new class {
 	public $code = 'unrelated_export';
 	public function get($field) { return $this->code; }
@@ -120,15 +100,10 @@ foreach (['tadl_public_oai_mods', 'tadl_public_oai_dc'] as $code) {
 	verify(count($export['export']) === 1, 'Known mapping produces one native metadata root.');
 }
 SyntheticPublicOaiPlugin::$record = null;
-$plugin->hookOAIRecordInfo($info);
-verify(!$info['info']['eligible'], 'A subsequent eligibility read can withdraw publication.');
 $rejected = false;
 try { $plugin->hookExportRecord($export); } catch (RuntimeException $error) { $rejected = true; }
 verify($rejected, 'An ineligible record cannot be serialized after its eligibility changes.');
 Configuration::$values['enable'] = '0';
 $disabled = new SyntheticPublicOaiPlugin(dirname(__DIR__));
 verify(!$disabled->checkStatus()['available'], 'Disabled plugin reports unavailable.');
-$disabledProbe = ['provider' => 'objects', 'table' => 'ca_objects', 'record_id' => 0, 'info' => []];
-$disabled->hookOAIRecordInfo($disabledProbe);
-verify($disabledProbe['info'] === [], 'Disabled plugin does not satisfy required policy hook.');
 echo "Public OAI plugin: {$checks} checks passed\n";

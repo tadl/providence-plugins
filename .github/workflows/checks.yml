@@ -34,7 +34,8 @@ jobs:
             /app/lib/BaseFindEngine.php
             /app/lib/BaseModel.php
             /app/lib/Configuration.php
-            /app/conf/oai_provider.conf
+            /app/lib/Controller/Request/RequestHTTP.php
+            /app/lib/Controller/Response/ResponseHTTP.php
             /app/lib/BaseModelWithAttributes.php
             /app/lib/LabelableBaseModelWithAttributes.php
             /app/lib/BundlableLabelableBaseModelWithAttributes.php

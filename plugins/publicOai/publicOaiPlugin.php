@@ -5,7 +5,7 @@ require_once __DIR__.'/lib/Config.php';
 require_once __DIR__.'/lib/Catalogue.php';
 require_once __DIR__.'/lib/Metadata.php';
 
-/** Supply public descriptive metadata to the native OAI provider and XML exporter. */
+/** Optional native XML exports; the plugin controller owns the OAI endpoint. */
 class publicOaiPlugin extends BaseApplicationPlugin {
 	private $settings;
 	private $configurationError;
@@ -20,19 +20,6 @@ class publicOaiPlugin extends BaseApplicationPlugin {
 	public function checkStatus() {
 		return ['description' => $this->getDescription(), 'errors' => $this->configurationError ? [$this->configurationError] : [],
 			'warnings' => [], 'available' => !$this->configurationError && !empty($this->settings['enable'])];
-	}
-
-	public function hookOAIRecordInfo(&$params) {
-		if (empty($this->settings['enable']) || ($params['provider'] ?? null) !== $this->settings['provider_key']
-			|| ($params['table'] ?? null) !== 'ca_objects'
-			|| ($params['item_acl_policy'] ?? 'native') !== $this->settings['item_acl_policy']
-			|| !\TADL\PublicOai\Config::mappingFormat((string)($params['mapping'] ?? ''))) { return $params; }
-		$id = (int)($params['record_id'] ?? 0);
-		$record = $id > 0 ? $this->catalogue()->record($id) : null;
-		$params['info']['handled'] = true;
-		$params['info']['eligible'] = $record !== null;
-		$params['info']['datestamp'] = $record ? (int)($record['modified'] ?? 0) : 0;
-		return $params;
 	}
 
 	public function hookExportRecord(&$params) {
