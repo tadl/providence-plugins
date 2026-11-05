@@ -33,6 +33,8 @@ jobs:
             /app/models/ca_acl.php
             /app/lib/BaseFindEngine.php
             /app/lib/BaseModel.php
+            /app/lib/Configuration.php
+            /app/conf/oai_provider.conf
             /app/lib/BaseModelWithAttributes.php
             /app/lib/LabelableBaseModelWithAttributes.php
             /app/lib/BundlableLabelableBaseModelWithAttributes.php

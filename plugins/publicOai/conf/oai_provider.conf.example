@@ -10,7 +10,7 @@ providers = {
 		query = *,
 		restrictToTypes = [],
 		excludeTypes = [],
-		setFacet = ,
+		setFacet = "",
 		publicObjectsWithRepresentations = 1,
 		# Must match publicOai's item_acl_policy after public policy review.
 		publicItemACLPolicy = native,
