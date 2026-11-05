@@ -33,6 +33,28 @@ verify(Config::mappingFormat('tadl_public_oai_dc') === 'oai_dc', 'DC mapping rec
 verify(Config::mappingFormat('unrelated_export') === null, 'Other exporters stay outside plugin scope.');
 verify(Config::normalize($valid)['item_acl_policy'] === 'native', 'Native anonymous item ACLs are the default.');
 verify(invalidConfig(array_replace($valid, ['item_acl_policy' => 'skip_everything'])), 'Unknown publication policy is rejected.');
+$rewrite = array_replace($valid, ['media_base_url' => 'https://backend.example.org',
+	'media_source_url_prefix' => 'https://backend.example.org/media/collection',
+	'media_public_url_prefix' => 'https://catalogue.example.org/media/public',
+	'allowed_media_hosts' => ['catalogue.example.org']]);
+verify(Config::normalize($rewrite)['enable'], 'Paired media prefixes allow a backend fallback origin and only the public output host.');
+verify(Config::normalize($valid)['media_source_url_prefix'] === '' && Config::normalize($valid)['media_public_url_prefix'] === '', 'Existing configurations retain disabled translation.');
+verify(invalidConfig(array_replace($rewrite, ['media_source_url_prefix' => ''])), 'A public prefix without a source prefix is rejected.');
+verify(invalidConfig(array_replace($rewrite, ['media_public_url_prefix' => ''])), 'A source prefix without a public prefix is rejected.');
+verify(invalidConfig(array_replace($rewrite, ['allowed_media_hosts' => ['backend.example.org']])), 'The translated output host must be allowed.');
+verify(invalidConfig(array_replace($rewrite, ['media_base_url' => 'https://other.example.org'])), 'An unrelated backend fallback origin is rejected.');
+verify(invalidConfig(array_replace($rewrite, ['media_base_url' => 'https://backend.example.org/media/collect'])), 'Backend fallback ancestry respects path boundaries.');
+verify(Config::normalize(array_replace($rewrite, ['media_base_url' => 'https://backend.example.org/media']))['enable'], 'An actual source-prefix path ancestor is accepted.');
+foreach (['http://backend.example.org/media/collection', 'https://backend.example.org',
+	'https://name:secret@backend.example.org/media/collection', 'https://backend.example.org:443/media/collection',
+	'https://backend.example.org/media/collection?key=synthetic', 'https://backend.example.org/media/collection#part',
+	'https://backend.example.org/media/../collection', 'https://backend.example.org/media/%2e%2e/collection',
+	'https://backend.example.org/media/%252e%252e/collection', 'https://backend.example.org/media%2fcollection',
+	'https://backend.example.org/media%5ccollection', 'https://backend.example.org/media/%00/collection',
+	"https://backend.example.org/media/collection\n"] as $prefix) {
+	verify(invalidConfig(array_replace($rewrite, ['media_source_url_prefix' => $prefix])), 'Unsafe media source prefix is rejected.');
+	verify(invalidConfig(array_replace($rewrite, ['media_public_url_prefix' => $prefix])), 'Unsafe media public prefix is rejected.');
+}
 
 class Configuration {
 	public static $values = [];

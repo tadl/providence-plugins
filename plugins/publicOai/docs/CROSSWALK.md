@@ -37,6 +37,10 @@ top-level `access="raw object"` URL. Several files become `relatedItem
 type="constituent"` elements, each with its own title/caption, MIME type and raw
 URL; none is mislabeled as the complete multi-file object. The adapter supplies
 only usable public representations. Hidden paired JPEG/PDF copies remain hidden.
+The adapter can translate native original/preview URL prefixes to the public
+Pawtucket media alias, preserving the exact media hash and filename suffix.
+The viewer, raw-file and preview URLs then share the public frontend host while
+retaining their distinct metadata roles. This does not move or regenerate files.
 
 When the adapter supplies a representation's public `context_url`, it appears
 as `access="object in context"` with a viewer display label, alongside its

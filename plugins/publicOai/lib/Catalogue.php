@@ -240,9 +240,9 @@ final class Catalogue {
 		$original = $info['original'] ?? null;
 		if (is_array($original) && empty($original['SKIP']) && empty($original['USE_ICON']) && empty($original['QUEUED'])
 			&& (!empty($original['FILENAME']) || !empty($original['EXTERNAL_URL']))) {
-			$url = $this->mediaUrl($representation->getMediaUrl('media', 'original'));
+			$url = $this->mediaUrl($representation->getMediaUrl('media', 'original'), empty($info['IS_EMBEDDED']));
 		} elseif (!empty($info['IS_EMBEDDED'])) {
-			$url = $this->mediaUrl($info['INPUT']['FETCHED_FROM'] ?? '');
+			$url = $this->mediaUrl($info['INPUT']['FETCHED_FROM'] ?? '', false);
 		} else { return null; }
 		if ($url === '') { return null; }
 		$mime = trim((string)($info['INPUT']['MIMETYPE'] ?? $original['MIMETYPE'] ?? ''));
@@ -255,14 +255,24 @@ final class Catalogue {
 		return $this->config['public_base_url'].'/Detail/'.$kind.'/'.$id;
 	}
 
-	private function mediaUrl($url): string {
+	private function mediaUrl($url, bool $rewrite=true): string {
 		if (!is_string($url) || $url === '' || preg_match('/[\x00-\x20\x7f\\\\]/', $url)) { return ''; }
 		if (substr($url, 0, 1) === '/' && substr($url, 0, 2) !== '//') { $url = $this->config['media_base_url'].$url; }
 		$parts = parse_url($url);
 		if (!$parts || ($parts['scheme'] ?? '') !== 'https' || isset($parts['user']) || isset($parts['pass'])
 			|| isset($parts['port']) || isset($parts['fragment'])
-			|| !in_array(strtolower($parts['host'] ?? ''), $this->config['allowed_media_hosts'], true)
-			|| preg_match('~(?:^|/)(?:\.|\.\.)(?:/|$)~', rawurldecode($parts['path'] ?? ''))) { return ''; }
+			|| !Config::safeMediaPath($parts['path'] ?? '')) { return ''; }
+		$source = $this->config['media_source_url_prefix'] ?? '';
+		if ($rewrite && $source !== '') {
+			$prefix = parse_url($source); $path = $parts['path'] ?? ''; $sourcePath = $prefix['path'];
+			if (strtolower($parts['host'] ?? '') === strtolower($prefix['host'])
+				&& ($path === $sourcePath || strpos($path, $sourcePath.'/') === 0)) {
+				if (isset($parts['query'])) { return ''; }
+				$url = $this->config['media_public_url_prefix'].substr($path, strlen($sourcePath));
+				$parts = parse_url($url);
+			}
+		}
+		if (!in_array(strtolower($parts['host'] ?? ''), $this->config['allowed_media_hosts'], true)) { return ''; }
 		return $url;
 	}
 

@@ -19,6 +19,11 @@ until the new provider and downstream reconciliation have been accepted.
    hostnames in emitted links. Verify original and preview links anonymously.
    Set `public_base_url` to the public Pawtucket interface. Representation viewer
    links use its supported `?representation_id=ID` object-page parameter.
+   Originals and previews should use the public frontend's media URL path too.
+   If native Providence URLs have a different origin/path, configure the paired
+   `media_source_url_prefix` and `media_public_url_prefix`. Verify that the public
+   alias serves the same files before activation. Restrict allowed_media_hosts
+   to final public hosts; source URLs are translated before that final check.
    Verify whether that public frontend enforces anonymous item ACLs. Keep
    `item_acl_policy=native` / `publicItemACLPolicy=native` by default; use matching
    `public_flags` values only for the explicitly reviewed publication policy

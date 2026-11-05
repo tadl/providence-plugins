@@ -60,15 +60,17 @@ foreach (['mods' => ['tadl_public_oai_mods', 'http://www.loc.gov/mods/v3'],
 $plugin = nativeConfiguration();
 verifyConfiguration($plugin->loadFile(__DIR__.'/../conf/plugin.conf'), 'Shared plugin configuration parses');
 verifyConfiguration($plugin->getScalar('enable') === '0' && $plugin->getList('allowed_media_hosts') === [], 'Shared plugin defaults are disabled and allow no media hosts');
+verifyConfiguration($plugin->getScalar('media_source_url_prefix') === '' && $plugin->getScalar('media_public_url_prefix') === '', 'Shared media prefix translation defaults to disabled');
 verifyConfiguration($plugin->loadFile(__DIR__.'/../conf/plugin.local.conf.example'), 'Local plugin example parses');
 verifyConfiguration($plugin->getScalar('enable') === '0', 'Local plugin example remains disabled');
-verifyConfiguration($plugin->getList('allowed_media_hosts') === ['collections.example.org'], 'Local example supplies an explicit media host');
+verifyConfiguration($plugin->getList('allowed_media_hosts') === ['catalogue.example.org'], 'Local example allows only the public media host');
 $values = [];
-foreach (['enable', 'provider_key', 'item_acl_policy', 'public_base_url', 'media_base_url', 'repository_name'] as $key) { $values[$key] = $plugin->getScalar($key); }
+foreach (['enable', 'provider_key', 'item_acl_policy', 'public_base_url', 'media_base_url', 'media_source_url_prefix', 'media_public_url_prefix', 'repository_name'] as $key) { $values[$key] = $plugin->getScalar($key); }
 $values['allowed_media_hosts'] = $plugin->getList('allowed_media_hosts');
 $normalized = \TADL\PublicOai\Config::normalize($values);
 verifyConfiguration($normalized['public_base_url'] === 'https://catalogue.example.org', 'Public record URL base survives native parsing');
-verifyConfiguration($normalized['media_base_url'] === 'https://collections.example.org', 'Technical media URL base survives native parsing');
+verifyConfiguration($normalized['media_base_url'] === 'https://backend.example.org', 'Native media fallback base survives native parsing');
+verifyConfiguration($normalized['media_source_url_prefix'] === 'https://backend.example.org/media/collection' && $normalized['media_public_url_prefix'] === 'https://catalogue.example.org/media/public', 'Native parser preserves paired source and public media prefixes');
 
 parseConfigurationText($plugin, "allowed_media_hosts = []\n");
 verifyConfiguration($plugin->exists('allowed_media_hosts') && $plugin->getList('allowed_media_hosts') === [], 'An explicit empty local list clears earlier allowed hosts');

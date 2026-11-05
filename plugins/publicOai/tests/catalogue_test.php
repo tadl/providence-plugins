@@ -229,4 +229,54 @@ $links = (new Catalogue(configuration()))->record(100)['relations'];
 check(count(array_filter($links, static fn($link) => ($link['url'] ?? '') === 'https://reference.example.org/public')) === 1 && !str_contains(json_encode($links), 'secret'), 'External references reject credentials and local targets');
 $disabled = configuration(); $disabled['enable'] = false;
 check((new Catalogue($disabled))->record(100) === null, 'Disabled plugin disseminates no records');
+
+fixture();
+$translation = array_replace(configuration(), ['media_base_url' => 'https://backend.example.org',
+	'media_source_url_prefix' => 'https://backend.example.org/media/collection',
+	'media_public_url_prefix' => 'https://catalogue.example.org/media/public', 'allowed_media_hosts' => ['catalogue.example.org']]);
+SyntheticModel::$records['ca_object_representations'][200]['media_urls'] = [
+	'original' => 'https://backend.example.org/media/collection/hash/public%20image.tif',
+	'thumbnail' => 'https://backend.example.org/media/collection/hash/thumb.jpg'];
+$mapped = (new Catalogue($translation))->record(100);
+check($mapped['media'][0]['url'] === 'https://catalogue.example.org/media/public/hash/public%20image.tif', 'Media translation changes the exact source origin and path while preserving encoded filenames');
+check($mapped['preview_urls'] === ['https://catalogue.example.org/media/public/hash/thumb.jpg'], 'Native previews receive the same public media path translation');
+check(!str_contains(json_encode($mapped), 'backend.example.org'), 'Backend media origin need not be allowed or appear in a translated public record');
+require_once __DIR__.'/../lib/Metadata.php';
+foreach (['mods', 'oai_dc'] as $format) {
+	$tree = json_encode(\TADL\PublicOai\Metadata::render($mapped, $format), JSON_UNESCAPED_SLASHES);
+	check(str_contains($tree, 'https://catalogue.example.org/media/public/hash/public%20image.tif') && !str_contains($tree, 'backend.example.org'), 'Translated file links flow through the metadata format: '.$format);
+}
+foreach (['https://backend.example.org/media/collection-other/file.tif', 'https://backend.example.org/media/collections/file.tif',
+	'https://backend.example.org.other.example.org/media/collection/file.tif', 'https://other.example.org/media/collection/file.tif',
+	'https://backend.example.org/other/media/collection/file.tif', 'https://backend.example.org/media/Collection/file.tif',
+	'https://backend.example.org/media/collection/file.tif?download=1', 'https://backend.example.org/media/collection/file.tif#part',
+	'https://user:secret@backend.example.org/media/collection/file.tif', 'https://backend.example.org/media/collection/../private.tif',
+	'https://backend.example.org/media/collection/%2e%2e/private.tif', 'https://backend.example.org/media/collection/%252e%252e/private.tif',
+	'https://backend.example.org/media/collection/%25252e%25252e/private.tif', 'https://backend.example.org/media/collection/file%2fname.tif',
+	'https://backend.example.org/media/collection/file%5cname.tif', 'https://backend.example.org/media/collection/file%0aname.tif',
+	'https://backend.example.org/media/collection/file%zzname.tif'] as $url) {
+	SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = $url;
+	check((new Catalogue($translation))->record(100) === null, 'Translation rejects lookalike origins/paths and unsafe source URLs');
+}
+SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = '/media/collection/hash/public.tif';
+check((new Catalogue($translation))->record(100)['media'][0]['url'] === 'https://catalogue.example.org/media/public/hash/public.tif', 'Relative native paths resolve through the backend fallback before public translation');
+SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = 'https://BACKEND.example.org/media/collection/hash/public.tif';
+check((new Catalogue($translation))->record(100)['media'][0]['url'] === 'https://catalogue.example.org/media/public/hash/public.tif', 'Source hostname matching uses DNS case rules');
+$unchanged = 'https://catalogue.example.org/media/public/hash/already-public.tif';
+SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = $unchanged;
+check((new Catalogue($translation))->record(100)['media'][0]['url'] === $unchanged, 'Already-public media URLs remain unchanged');
+$external = 'https://catalogue.example.org/external/file.tif?source=https://backend.example.org/media/collection/file.tif';
+SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = $external;
+check((new Catalogue($translation))->record(100)['media'][0]['url'] === $external, 'A source URL inside an allowed external query is not translated');
+$external = 'https://catalogue.example.org/external/https://backend.example.org/media/collection/file.tif';
+SyntheticModel::$records['ca_object_representations'][200]['media_urls']['original'] = $external;
+check((new Catalogue($translation))->record(100)['media'][0]['url'] === $external, 'A source URL embedded in an unrelated public pathname is not translated');
+SyntheticModel::$records['ca_object_representations'][200]['media_descriptor'] = ['IS_EMBEDDED' => true,
+	'INPUT' => ['FETCHED_FROM' => 'https://backend.example.org/media/collection/video', 'MIMETYPE' => 'video/mp4']];
+SyntheticModel::$records['ca_object_representations'][200]['media_urls'] = [];
+check((new Catalogue($translation))->record(100) === null, 'An embedded source is never translated into a local public file');
+$embedded = $translation; $embedded['allowed_media_hosts'][] = 'video.example.org';
+$external = 'https://video.example.org/watch?v=synthetic';
+SyntheticModel::$records['ca_object_representations'][200]['media_descriptor']['INPUT']['FETCHED_FROM'] = $external;
+check((new Catalogue($embedded))->record(100)['media'][0]['url'] === $external, 'An explicitly allowed external embedded URL keeps its query unchanged');
 print 'Public OAI catalogue: '.$checks." checks passed.\n";

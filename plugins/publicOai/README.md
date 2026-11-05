@@ -32,6 +32,12 @@ private; a stored representation does not qualify solely because it exists.
 Media URLs must use explicitly allowed HTTPS hosts. The configured public
 Pawtucket frontend supplies object, representation-viewer and related-record
 landing URLs; direct original/thumbnail URLs have separate technical purposes.
+When Providence and Pawtucket expose the same media under different URL paths,
+configure the paired `media_source_url_prefix` and `media_public_url_prefix`.
+The adapter translates original/preview URLs only within that exact source path
+and validates the resulting public host. Files and native media-volume settings
+are unchanged. The final host allowlist should contain only intended public
+media hosts; unmatched backend URLs then fail publication checks.
 File paths, internal
 notes, preservation state and unrestricted attribute dumps are not exported.
 See [the field crosswalk](docs/CROSSWALK.md) for mappings and fidelity limits.
