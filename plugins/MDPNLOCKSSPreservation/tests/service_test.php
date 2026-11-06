@@ -148,6 +148,16 @@ try {
 	check($service->run($first['id'])['status'] === 'built','Duplicate queue delivery is idempotent');
 	$scan = $service->enqueue(1,'scan',$user,[]); check($service->run($scan['id'])['status'] === 'scanned','Scan completes');
 	check($store->get($scan['id'])['result']['changed'] === false,'Unchanged scan matches baseline');
+	$unchanged = $service->enqueue(1,'supplemental',$user,[]);
+	check($service->run($unchanged['id']) === ['status' => 'unchanged','parts' => 0],'An empty supplement completes without a failed job or transport');
+	check($store->get($unchanged['id'])['status'] === 'unchanged' && $store->baseline(1,$config->target())['id'] === $first['id']
+		&& !glob($store->directory($unchanged['id']).'/*.tar') && !is_dir($store->directory($unchanged['id']).'/staging'),'No-change attempts create no bag and do not advance the successful baseline');
+	$legacyUnchanged = ['mode' => 'supplemental','status' => 'failed','result' => null,
+		'error' => 'Preservation worker failed: There are no changes since the baseline; choose a new full deposit if a fresh copy is required'];
+	check(\MDPNPreservation\Service::attemptStatus($legacyUnchanged) === 'unchanged','Recognize the exact historical no-change refusal without modifying its stored state');
+	check(\MDPNPreservation\Service::attemptStatus(array_merge($legacyUnchanged,['mode' => 'full'])) === 'failed'
+		&& \MDPNPreservation\Service::attemptStatus(array_merge($legacyUnchanged,['error' => 'A real transfer failed.'])) === 'failed'
+		&& \MDPNPreservation\Service::attemptStatus(array_merge($legacyUnchanged,['result' => ['parts' => [['filename' => 'synthetic.tar']]]])) === 'failed','Real failures and completed packages cannot be reclassified as empty supplements');
 	$catalogue->data['ca_object_labels'][1]['name'] = 'Updated synthetic object';
 	$supplement = $service->enqueue(1,'supplemental',$user,[]); check($service->run($supplement['id'])['status'] === 'built','Metadata supplement completes');
 	check(count($store->get($supplement['id'])['result']['recovery_chain']) === 2,'Recovery roadmap includes supplement');
@@ -215,6 +225,13 @@ try {
 	$store->update($first['id'],['result' => $unsafe]); ob_start(); $controller->Index(); $unsafeHtml = ob_get_clean();
 	check(strpos($unsafeHtml,'<script>unsafeBagInfo()</script>') === false && strpos($unsafeHtml,'&lt;/textarea&gt;&lt;script&gt;unsafeBagInfo()&lt;/script&gt;') !== false,'Bag-info text cannot escape its textarea or execute HTML');
 	$store->update($first['id'],['result' => $safe]);
+	$store->update($unchanged['id'],['status' => 'failed','error' => $legacyUnchanged['error']]);
+	ob_start(); $controller->Index(); $legacyHtml = ob_get_clean();
+	$legacyDom = new DOMDocument(); @$legacyDom->loadHTML('<?xml encoding="UTF-8">'.$legacyHtml);
+	$legacyStatus = (new DOMXPath($legacyDom))->query('//article[.//small[text()="'.$unchanged['id'].'"]]/p[1]')->item(0);
+	check($legacyStatus && strpos($legacyStatus->textContent,'unchanged · ') === 0
+		&& strpos($legacyHtml,$legacyUnchanged['error']) === false && strpos($legacyHtml,'No changes since the baseline. No bag was created or uploaded.') !== false,'Historical empty supplements show an unchanged outcome instead of a misleading error');
+	$store->update($unchanged['id'],['status' => 'unchanged','error' => null]);
 	$accountFields = $user->fields;
 	$user->fields = ['fname' => 'Example "Archivist"','lname' => '<script>profileName()</script>','email' => 'archivist@example.org'];
 	$contactValues = array_merge($values,['contact_name' => '','contact_email' => '']); Configuration::$values = $contactValues;
@@ -264,6 +281,8 @@ try {
 	Configuration::$values = $values; ca_collections::$parents = [2 => 1]; ca_collections::$notes = []; $request->parameters = ['collection_id' => 1];
 	require_once __DIR__.'/../lib/Tool.php';
 	$tool = new \MDPNPreservation\Tool($config,dirname(__DIR__),function($user) use ($catalogue) { return $catalogue; });
+	ob_start(); $unchangedSucceeded = $tool->run('mdpn_preservation_run',['apply' => '1','job' => $unchanged['id']]); $unchangedOutput = ob_get_clean();
+	check($unchangedSucceeded && json_decode($unchangedOutput,true)['status'] === 'unchanged','The CLI treats a completed no-change attempt as success');
 	ob_start(); $created = $tool->run('mdpn_preservation_create',['apply' => '1','collection-id' => '1','user-id' => '1','mode' => '',
 		'contact-name' => '','contact-email' => '','description' => '']); $cli_output = ob_get_clean();
 	check($created,'CLI defaults must survive empty strings from native caUtils');

@@ -169,6 +169,7 @@ saved display copy; their original bag-info.txt remains inside the archive.
 | --- | --- |
 | `queued` / `running` | Capture, packaging, validation or transfer is pending or in progress. |
 | `scanned` | A comparison was completed; no bag was created. |
+| `unchanged` | A requested supplement found no changes; no bag was created or uploaded and the completed baseline is unchanged. |
 | `built` | Local archives were created and validated; they have not been submitted to a preservation service. |
 | `uploaded` | Every part reached staging; LOCKSS preservation has not been confirmed. |
 | `confirmed` | An authorized operator recorded preservation evidence and a reference. |
@@ -185,7 +186,9 @@ scan describes its capture time, not subsequent edits.
 Packaging settings and their source/version information do not mark a collection
 out of date or justify a supplement. Changes to catalogue definitions and the
 Providence installation profile still count, because they affect interpretation
-and recovery of the metadata.
+and recovery of the metadata. When those are the only differences, the report
+uses `config_changed` rather than `out_of_date`. Confirmation remains recorded;
+the collection's records and original files still match the confirmed deposit.
 
 The page shows the most recent 100 jobs and the first 200 change entries for a
 job. The complete history remains in the private ledger, and the bags retain
@@ -205,7 +208,15 @@ original-file bytes. Unchanged files refer to their earlier bags. Metadata-only
 changes can produce a supplement without new original files. Removed records,
 relationships and files are recorded in the change list; they are absent from
 the latest reconstructed state but remain available in earlier immutable bags.
-An unchanged collection cannot produce an empty redundant supplement.
+An unchanged collection cannot produce an empty redundant supplement. Instead,
+the attempt completes as `unchanged`, without sending anything or advancing the
+successful baseline. Older empty-supplement attempts that were recorded with the
+specific no-changes error display the same outcome; their stored history is not
+rewritten. Actual packaging and transfer failures remain failures.
+
+Global configuration changes can produce a metadata-only supplement even when
+collection records and originals match. Review `config_changed` separately from
+content changes; a new full deposit is not required just to update configuration.
 
 A **part** is a physical subdivision of one deposit, not a separate revision.
 Every part repeats the complete metadata snapshot and inventory. A multipart

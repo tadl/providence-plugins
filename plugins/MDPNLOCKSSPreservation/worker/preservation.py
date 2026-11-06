@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.7"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.8"
 
 
 def encoded(value):
@@ -142,7 +142,11 @@ def compare_report(request):
         counts = Counter(change["category"] + "_" + change["operation"] for change in changes(current, saved))
         if current.get("external_references", []) != saved.get("external_references", []):
             counts["external_references_changed"] += 1
-        comparisons[job_id] = {"current": current_fingerprint == content_fingerprint(saved), "changes": dict(counts)}
+        matches = current_fingerprint == content_fingerprint(saved)
+        # Keep recovery configuration changes visible without calling unchanged
+        # collection records and originals out of date. Saved integrity is intact.
+        configuration_only = not matches and fingerprint({**current, "schema": saved["schema"]}) == saved["fingerprint"]
+        comparisons[job_id] = {"current": matches, "configuration_only": configuration_only, "changes": dict(counts)}
     return {"checked_at": current["captured_at"], "comparisons": comparisons}
 
 
@@ -288,7 +292,8 @@ def build(request):
     if scan:
         return {"snapshot": snapshot, "parts": [], "changed": changed}
     if job["mode"] == "supplemental" and not changed:
-        raise ValueError("There are no changes since the baseline; choose a new full deposit if a fresh copy is required")
+        shutil.rmtree(stage)
+        return {"snapshot": snapshot, "parts": [], "bag_info": {}, "changed": False}
     snapshot.update({"format": FORMAT, "deposit_id": job["id"], "mode": job["mode"], "revision": job["revision"],
                      "parent_deposit_id": job.get("parent_id"), "bag_group_identifier": request["bag_group_identifier"]})
     # Reserve conservative space for repeated metadata and tar headers. The final

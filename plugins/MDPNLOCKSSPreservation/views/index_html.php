@@ -50,10 +50,12 @@ $form = function($action,$name) use ($id) {
 <h2><?= $escape(_t('History')) ?></h2>
 <?php if (!$history): ?><p><?= $escape(_t('No preservation jobs yet.')) ?></p><?php endif; ?>
 <?php foreach ($history as $job): ?>
+<?php $attemptStatus = \MDPNPreservation\Service::attemptStatus($job); ?>
 <article style="border-top:1px solid #aaa;padding:1em 0;overflow-wrap:anywhere">
 <h3><?= $escape($job['mode'] === 'scan' ? _t('Collection scan') : _t('Revision %1: %2',$job['revision'],$job['mode'])) ?></h3>
-<p><?= $escape($job['status'].' · '.$job['created_at']) ?><br><small><?= $escape($job['id']) ?></small></p>
-<?php if ($job['error']): ?><p role="alert"><?= $escape($job['error']) ?></p><?php endif; ?>
+<p><?= $escape($attemptStatus.' · '.$job['created_at']) ?><br><small><?= $escape($job['id']) ?></small></p>
+<?php if ($attemptStatus === 'unchanged'): ?><p><?= $escape(_t('No changes since the baseline. No bag was created or uploaded.')) ?></p>
+<?php elseif ($job['error']): ?><p role="alert"><?= $escape($job['error']) ?></p><?php endif; ?>
 <?php if ($job['result']): ?>
 <p><?= $escape(_t('%1 original files; %2 change entries.',$job['result']['files'],$job['result']['change_count'])) ?></p>
 <?php if (!empty($job['result']['recovery_chain'])): ?>

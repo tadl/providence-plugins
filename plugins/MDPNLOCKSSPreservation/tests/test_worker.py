@@ -344,7 +344,7 @@ class PreservationTests(unittest.TestCase):
                 else:
                     update["schema"]["bagit_profile"][field] = value
                 compared = preservation.compare_report(dict(request, snapshot=update))["comparisons"]
-                self.assertEqual(compared[full["snapshot"]["deposit_id"]], {"current": True, "changes": {}})
+                self.assertEqual(compared[full["snapshot"]["deposit_id"]], {"current": True, "configuration_only": False, "changes": {}})
                 scan, _ = self.build(update, "scan", full)
                 self.assertFalse(scan["changed"])
                 self.assertEqual(scan["snapshot"]["changes"], [])
@@ -362,8 +362,10 @@ class PreservationTests(unittest.TestCase):
         full, output = self.build(metadata=self.mdpn_metadata())
         update = copy.deepcopy(self.snapshot)
         update["schema"]["bagit_profile"]["source_profile_version"] = "1.4.0"
-        with self.assertRaisesRegex(ValueError, "no changes since the baseline"):
-            self.build(update, "supplemental", full, metadata=self.mdpn_metadata())
+        unchanged, unchanged_output = self.build(update, "supplemental", full, metadata=self.mdpn_metadata())
+        self.assertFalse(unchanged["changed"])
+        self.assertEqual(unchanged["parts"], [])
+        self.assertFalse(list(unchanged_output.iterdir()))
         new_full, new_output = self.build(update, "full", full, metadata=self.mdpn_metadata())
         new_archive = self.archives(new_full, new_output)[0]
         self.assertEqual(preservation.verify_archive(new_archive)["snapshot"]["schema"], update["schema"])
@@ -403,6 +405,8 @@ class PreservationTests(unittest.TestCase):
                     update["files"] = [self.original("1", b"original B")]
                 comparison = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})
                 self.assertFalse(comparison["comparisons"][full["snapshot"]["deposit_id"]]["current"])
+                self.assertEqual(comparison["comparisons"][full["snapshot"]["deposit_id"]]["configuration_only"],
+                                 category in ("definitions", "installation_profile_xml"))
                 expected = "schema" if category in ("definitions", "installation_profile_xml") else category
                 operation = "removed" if category == "relationships" else "changed"
                 self.assertEqual(comparison["comparisons"][full["snapshot"]["deposit_id"]]["changes"], {expected + "_" + operation: 1})
@@ -482,15 +486,38 @@ class PreservationTests(unittest.TestCase):
         result, output = self.build()
         self.assertEqual(preservation.verify_archive(self.archives(result, output)[0])["snapshot"]["files"][0]["original_filename"], original["original_filename"])
 
-    def test_unchanged_supplement_and_insufficient_space_are_refused(self):
+    def test_unchanged_supplement_succeeds_without_a_bag_but_full_disks_fail(self):
+        self.snapshot["files"] = [self.original("1", b"unchanged original")]
         full, _ = self.build()
-        with self.assertRaisesRegex(ValueError, "no changes since the baseline"):
-            self.build(mode="supplemental", parent=full)
+        unchanged, output = self.build(mode="supplemental", parent=full)
+        self.assertFalse(unchanged["changed"])
+        self.assertEqual(unchanged["parts"], [])
+        self.assertEqual(unchanged["bag_info"], {})
+        self.assertEqual(unchanged["snapshot"]["changes"], [])
+        self.assertEqual(unchanged["snapshot"]["compared_to_deposit_id"], full["snapshot"]["deposit_id"])
+        self.assertFalse(list(output.iterdir()))
         class FullDisk:
             free = 0
         with patch.object(preservation.shutil, "disk_usage", return_value=FullDisk()):
             with self.assertRaisesRegex(ValueError, "Insufficient free staging space"):
                 self.build()
+
+    def test_configuration_only_supplement_preserves_definitions_and_recovery(self):
+        self.snapshot["files"] = [self.original("1", b"unchanged original")]
+        full, output = self.build()
+        update = copy.deepcopy(self.snapshot)
+        update["schema"]["definitions"]["ca_locales"]["2"] = "fr_CA"
+        supplement, supplement_output = self.build(update, "supplemental", full)
+        self.assertTrue(supplement["changed"])
+        self.assertEqual(supplement["snapshot"]["changes"], [{"category": "schema", "key": "metadata-schema", "operation": "changed"}])
+        archive = self.archives(supplement, supplement_output)[0]
+        with tarfile.open(archive) as bag:
+            self.assertFalse(any('/originals/' in member.name for member in bag if member.isfile()))
+        recovered = self.root / "configuration-recovered"
+        preservation.recover(self.archives(full, output) + [archive], supplement["snapshot"]["deposit_id"], recovered)
+        restored = json.loads((recovered / "catalogue-snapshot.json").read_text())
+        self.assertEqual(restored["schema"], update["schema"])
+        self.assertEqual(restored["records"], self.snapshot["records"])
 
     def test_valid_bagit_checksums_cannot_hide_a_wrong_file_inventory(self):
         self.snapshot["files"] = [self.original("1", b"a")]

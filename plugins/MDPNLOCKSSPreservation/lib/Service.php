@@ -8,6 +8,14 @@ require_once __DIR__.'/Eligibility.php';
 final class Service {
 	// ca_task_queue.handler is VARCHAR(20); keep this separate from the plugin name.
 	public const QUEUE_HANDLER = 'MDPNPreservation';
+	/** Read old no-change refusals accurately without rewriting immutable history. */
+	public static function attemptStatus(array $job) : string {
+		if ($job['mode'] === 'supplemental' && $job['status'] === 'failed' && empty($job['result']['parts'])
+			&& ($job['error'] ?? null) === 'Preservation worker failed: There are no changes since the baseline; choose a new full deposit if a fresh copy is required') {
+			return 'unchanged';
+		}
+		return $job['status'];
+	}
 	private $config;
 	private $store;
 	private $root;
@@ -118,6 +126,7 @@ final class Service {
 			if ($summary['recovery_chain']) { $summary['recovery_chain'][count($summary['recovery_chain'])-1]['parts'] = $result['parts']; }
 			$this->store->update($id,['result' => $summary]);
 			if ($job['mode'] === 'scan') { $status = 'scanned'; }
+			elseif ($job['mode'] === 'supplemental' && !$result['changed'] && !$result['parts']) { $status = 'unchanged'; }
 			elseif ($this->config->get('transport','local') === 'local') { $status = 'built'; }
 			else {
 				require_once __DIR__.'/SftpTransport.php';

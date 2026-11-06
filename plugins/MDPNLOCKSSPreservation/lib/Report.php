@@ -70,7 +70,7 @@ final class Report {
 					unset($before['captured_at'],$after['captured_at']);
 					if (Store::json($before) !== Store::json($after)) { throw new Failure('The collection changed during the maintenance check. Run the report again.'); }
 					foreach ($comparison['comparisons'] as $jobId => $checked) {
-						$candidates[$jobId]['freshness'] = $checked['current'] ? 'current' : 'out_of_date';
+						$candidates[$jobId]['freshness'] = $checked['current'] ? 'current' : (!empty($checked['configuration_only']) ? 'config_changed' : 'out_of_date');
 						$candidates[$jobId]['changes'] = $checked['changes']; $candidates[$jobId]['checked_at'] = $comparison['checked_at'];
 					}
 				} catch (\Throwable $e) {
@@ -95,6 +95,7 @@ final class Report {
 			elseif (($preservation['freshness'] ?? null) === 'current') { $status = 'current'; }
 			elseif (($deposit['freshness'] ?? null) === 'current') { $status = $deposit['delivery_status'] === 'built' ? 'local_only' : 'awaiting_confirmation'; }
 			elseif (($preservation['freshness'] ?? null) === 'out_of_date' || ($deposit['freshness'] ?? null) === 'out_of_date') { $status = 'out_of_date'; }
+			elseif (($preservation['freshness'] ?? null) === 'config_changed' || ($deposit['freshness'] ?? null) === 'config_changed') { $status = 'config_changed'; }
 			elseif ($deposit || $preservation) { $status = $historyOnly ? 'not_checked' : 'needs_review'; }
 			$coverageIncomplete = $unknownCoverage && !$deposit && !$preservation;
 			if ($status === 'never_deposited' && $coverageIncomplete) { $status = 'needs_review'; }
@@ -102,11 +103,13 @@ final class Report {
 			foreach ($this->ancestors($collections,$id) as $ancestor) {
 				if (isset($attempts[$ancestor]) && (!$attempt || strcmp($attempts[$ancestor]['created_at'],$attempt['created_at']) > 0)) { $attempt = $attempts[$ancestor]; }
 			}
-			if ($status !== 'error' && ($attempt['status'] ?? null) === 'failed') { $status = 'deposit_failed'; }
+			$attemptStatus = $attempt ? Service::attemptStatus($attempt) : null;
+			if ($status !== 'error' && $attemptStatus === 'failed') { $status = 'deposit_failed'; }
 			$requiresAttention = $status !== 'current';
 			$row = ['collection_id' => $id,'parent_id' => $collection['parent_id'],'label' => $collection['label'],'status' => $status,
 				'attention_required' => (bool)$requiresAttention,'coverage_incomplete' => $coverageIncomplete,'preservation' => $preservation,'latest_deposit' => $deposit,
-				'latest_attempt' => $attempt ? ['job_id' => $attempt['id'],'root_collection_id' => (int)$attempt['collection_id'],'status' => $attempt['status'],'created_at' => $attempt['created_at']] : null];
+				'latest_attempt' => $attempt ? ['job_id' => $attempt['id'],'root_collection_id' => (int)$attempt['collection_id'],'status' => $attemptStatus,
+					'recorded_status' => $attempt['status'],'created_at' => $attempt['created_at']] : null];
 			$rows[] = $row; $states[$status] = ($states[$status] ?? 0)+1;
 			if ($requiresAttention) { $attention++; } if ($status === 'error') { $errors++; }
 		}
@@ -165,7 +168,7 @@ final class Report {
 			$candidate['inherited'] = (int)$candidate['job']['collection_id'] !== $collection;
 			if ($candidate['inherited'] && $candidate['freshness'] === 'out_of_date') { $candidate['freshness'] = 'needs_review'; }
 		} unset($candidate);
-		$rank = ['current' => 0,'error' => 1,'out_of_date' => 2,'needs_review' => 3,'not_checked' => 4];
+		$rank = ['current' => 0,'error' => 1,'out_of_date' => 2,'config_changed' => 3,'needs_review' => 4,'not_checked' => 5];
 		usort($candidates,static function($a,$b) use ($rank) {
 			$order = [$rank[$a['freshness']],(int)$a['inherited']] <=> [$rank[$b['freshness']],(int)$b['inherited']];
 			return $order ?: strcmp($b['job']['created_at'],$a['job']['created_at']);

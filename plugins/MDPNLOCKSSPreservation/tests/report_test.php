@@ -18,6 +18,8 @@ function fails($call,$expected) {
 class ReportCatalogue extends SyntheticCatalogue {
 	public $source;
 	public $forbidFiles = false;
+	public $profileXml = '<profile><profileName>Synthetic</profileName></profile>';
+	public function profile() : string { return $this->profileXml; }
 	public function __construct() {
 		parent::__construct();
 		$this->data['ca_collection_labels'] = [1 => ['label_id' => 1,'collection_id' => 1,'name' => 'Synthetic archive','is_preferred' => 1],
@@ -87,6 +89,13 @@ try {
 	$store->update($first['id'],['status' => 'uploaded']); $service->confirm($first['id'],$user,'synthetic node receipt');
 	$rows = index_rows($reporter->run($user));
 	check($rows[1]['status'] === 'current' && !isset($rows[2]),'Confirmed current preservation is reported once for the complete hierarchy');
+	$originalProfile = $catalogue->profileXml;
+	$catalogue->profileXml = '<profile><profileName>Synthetic</profileName><userInterfaces>Revised editor</userInterfaces></profile>';
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'config_changed' && $rows[1]['preservation']['freshness'] === 'config_changed'
+		&& $rows[1]['latest_deposit']['freshness'] === 'config_changed' && $rows[1]['preservation']['delivery_status'] === 'confirmed'
+		&& $rows[1]['preservation']['changes_in_deposit_root'] === ['schema_changed' => 1],'Configuration-only drift is distinct from collection content changes and retains confirmation');
+	$catalogue->profileXml = $originalProfile;
 	$catalogue->data['ca_object_labels'][1]['name'] = 'Changed object metadata';
 	$changed = $reporter->run($user); $rows = index_rows($changed);
 	check($rows[1]['status'] === 'out_of_date' && $rows[1]['preservation']['changes_in_deposit_root']['records_changed'] === 1,'Metadata changes make confirmed preservation out of date');
@@ -152,6 +161,18 @@ try {
 	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'not_checked','History-only reports show recorded failures without asserting content freshness');
 	rename($path,$path.'.saved'); $rows = index_rows($reporter->run($user)); rename($path.'.saved',$path);
 	check($rows[1]['status'] === 'error','A failed latest attempt cannot hide a snapshot verification error');
+	$legacy = $store->create(1,'supplemental',$config->target(),1,[]);
+	$legacyError = 'Preservation worker failed: There are no changes since the baseline; choose a new full deposit if a fresh copy is required';
+	$store->update($legacy['id'],['status' => 'failed','error' => $legacyError]); $beforeLegacy = private_tree($root);
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'current' && $rows[1]['latest_attempt']['status'] === 'unchanged'
+		&& $rows[1]['latest_attempt']['recorded_status'] === 'failed' && private_tree($root) === $beforeLegacy,'Legacy no-change attempts are reported accurately without rewriting history or confirmation');
+	$catalogue->profileXml = '<profile><profileName>Synthetic</profileName><userInterfaces>Revised editor</userInterfaces></profile>';
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'config_changed' && $rows[1]['latest_attempt']['status'] === 'unchanged','An old empty-supplement refusal does not hide configuration-only drift');
+	$store->update($legacy['id'],['error' => $legacyError.' Different failure.']);
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'config_changed','Only the exact historical refusal is a no-op; genuine failures remain visible');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($reporter,$user) { $reporter->run($user); },'native ACL checks enabled');
 	print "Preservation maintenance report, inherited coverage, freshness and read-only checks passed.\n";

@@ -210,5 +210,13 @@ Freshness checks compute a separate content comparison from both snapshots,
 excluding only the BagIt packaging profile from the schema. Packaging settings,
 policy provenance or contact changes alone cannot make a collection stale or
 justify a supplement. Catalogue definition and installation-profile changes
-remain significant. A requested new full deposit still records the current
+remain significant, but are reported as `config_changed` when collection rows,
+relationships, external references and original files still match. Such a
+metadata-only supplement retains the new configuration and depends on earlier
+bags for unchanged originals. A requested new full deposit still records the current
 packaging policy, including when the collection content is unchanged.
+
+A supplemental attempt with neither content nor configuration changes completes
+as `unchanged` and produces no bag or recovery-chain entry. It never becomes a
+completed baseline. Older no-change refusals remain stored as originally recorded;
+their display classification does not alter any saved bag or confirmation.
