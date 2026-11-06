@@ -344,7 +344,7 @@ class PreservationTests(unittest.TestCase):
                 else:
                     update["schema"]["bagit_profile"][field] = value
                 compared = preservation.compare_report(dict(request, snapshot=update))["comparisons"]
-                self.assertEqual(compared[full["snapshot"]["deposit_id"]], {"current": True, "configuration_only": False, "changes": {}})
+                self.assertEqual(compared[full["snapshot"]["deposit_id"]], {"current": True, "recovery_context_changed": True, "changes": {}})
                 scan, _ = self.build(update, "scan", full)
                 self.assertFalse(scan["changed"])
                 self.assertEqual(scan["snapshot"]["changes"], [])
@@ -404,14 +404,110 @@ class PreservationTests(unittest.TestCase):
                 else:
                     update["files"] = [self.original("1", b"original B")]
                 comparison = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})
-                self.assertFalse(comparison["comparisons"][full["snapshot"]["deposit_id"]]["current"])
-                self.assertEqual(comparison["comparisons"][full["snapshot"]["deposit_id"]]["configuration_only"],
-                                 category in ("definitions", "installation_profile_xml"))
-                expected = "schema" if category in ("definitions", "installation_profile_xml") else category
+                contextual = category in ("installation_profile_xml", "external_references")
+                checked = comparison["comparisons"][full["snapshot"]["deposit_id"]]
+                self.assertEqual(checked["current"], contextual)
+                self.assertEqual(checked["recovery_context_changed"], contextual)
+                expected = "schema" if category == "definitions" else category
                 operation = "removed" if category == "relationships" else "changed"
-                self.assertEqual(comparison["comparisons"][full["snapshot"]["deposit_id"]]["changes"], {expected + "_" + operation: 1})
+                self.assertEqual(checked["changes"], {} if contextual else {expected + "_" + operation: 1})
                 scan, _ = self.build(update, "scan", full)
-                self.assertTrue(scan["changed"])
+                self.assertEqual(scan["changed"], not contextual)
+
+    def meaning_fixture(self):
+        self.snapshot["records"]["ca_objects"]["1"]["attributes"] = [{"row": {"element_id": 10}, "values": [{"element_id": 11, "item_id": 2}]}]
+        self.snapshot["records"]["ca_entities"] = {"30": {"row": {"entity_id": 30}, "attributes": []}}
+        self.snapshot["relationships"]["ca_objects_x_collections"]["1"]["row"]["type_id"] = 5
+        self.snapshot["schema"]["definitions"].update({
+            "ca_metadata_elements": {"10": {"element_id": 10, "element_code": "container", "datatype": 0},
+                                     "11": {"element_id": 11, "element_code": "subject", "datatype": 3, "parent_id": 10, "list_id": 1, "settings": "synthetic settings"}},
+            "ca_metadata_element_labels": {"1": {"element_id": 11, "locale_id": 2, "name": "Subject"}},
+            "ca_lists": {"1": {"list_id": 1, "list_code": "subjects"}},
+            "ca_list_items": {"2": {"item_id": 2, "list_id": 1, "idno": "history", "item_value": "history"}},
+            "ca_list_item_labels": {"1": {"item_id": 2, "locale_id": 2, "name_singular": "History"},
+                                    "2": {"item_id": 99, "locale_id": 2, "name_singular": "Unused term"}},
+            "ca_relationship_types": {"5": {"type_id": 5, "type_code": "member"}},
+            "ca_relationship_type_labels": {"1": {"type_id": 5, "locale_id": 2, "typename": "Member"}},
+        })
+        self.snapshot["schema"]["tables"] = {"ca_objects_x_collections": {"foreign_keys": {
+            "type_id": {"many_table_field": "type_id", "one_table": "ca_relationship_types"}}}}
+
+    def test_installation_and_related_person_changes_do_not_invalidate_collection(self):
+        self.meaning_fixture()
+        full, _ = self.build()
+        baseline = self.root / "baseline.json"
+        baseline.write_bytes(preservation.encoded(full))
+        for context in ("editor", "field_settings", "unused_term", "person_subject", "tree_indexes"):
+            with self.subTest(context=context):
+                update = copy.deepcopy(self.snapshot)
+                if context == "editor":
+                    update["schema"]["installation_profile_xml"] = "<profile><userInterfaces>New editor</userInterfaces></profile>"
+                elif context == "field_settings":
+                    update["schema"]["definitions"]["ca_metadata_elements"]["11"]["settings"] = "changed display and validation settings"
+                    update["schema"]["definitions"]["ca_metadata_type_restrictions"] = {"99": {"element_id": 11, "type_id": 99}}
+                elif context == "unused_term":
+                    update["schema"]["definitions"]["ca_list_item_labels"]["2"]["name_singular"] = "Changed unused term"
+                    update["schema"]["definitions"]["ca_relationship_types"]["99"] = {"type_id": 99, "type_code": "unused_relationship"}
+                elif context == "person_subject":
+                    update["records"]["ca_entities"]["30"]["attributes"] = [{"values": [{"element_id": 99, "item_id": 99}]}]
+                else:
+                    update["records"]["ca_objects"]["1"]["row"].update({"hier_left": 40, "hier_right": 41, "view_count": 500})
+                compared = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})
+                checked = compared["comparisons"][full["snapshot"]["deposit_id"]]
+                self.assertTrue(checked["current"])
+                self.assertTrue(checked["recovery_context_changed"])
+                self.assertEqual(checked["changes"], {})
+                scan, _ = self.build(update, "scan", full)
+                self.assertFalse(scan["changed"])
+                unchanged, _ = self.build(update, "supplemental", full)
+                self.assertFalse(unchanged["parts"])
+
+    def test_used_metadata_definitions_and_relationship_names_are_meaningful(self):
+        self.meaning_fixture()
+        full, _ = self.build()
+        baseline = self.root / "baseline.json"
+        baseline.write_bytes(preservation.encoded(full))
+        for table, key, field, value in (
+            ("ca_metadata_elements", "11", "datatype", 1),
+            ("ca_metadata_elements", "11", "element_code", "redefined_subject"),
+            ("ca_metadata_elements", "10", "element_code", "redefined_container"),
+            ("ca_metadata_element_labels", "1", "name", "Revised field meaning"),
+            ("ca_list_items", "2", "item_value", "different meaning"),
+            ("ca_list_item_labels", "1", "name_singular", "Changed used subject"),
+            ("ca_relationship_types", "5", "type_code", "different_relation"),
+            ("ca_relationship_type_labels", "1", "typename", "Different relationship meaning"),
+        ):
+            with self.subTest(table=table, field=field):
+                update = copy.deepcopy(self.snapshot)
+                update["schema"]["definitions"][table][key][field] = value
+                compared = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})
+                checked = compared["comparisons"][full["snapshot"]["deposit_id"]]
+                self.assertFalse(checked["current"])
+                self.assertFalse(checked["recovery_context_changed"])
+                self.assertEqual(checked["changes"], {"schema_changed": 1})
+
+    def test_object_and_representation_additions_edits_and_removals_require_attention(self):
+        self.snapshot["records"]["ca_object_representations"] = {"20": {"row": {"representation_id": 20}, "labels": []}}
+        full, _ = self.build()
+        for table in ("ca_collections", "ca_objects", "ca_object_representations"):
+            for operation in ("added", "changed", "removed"):
+                with self.subTest(table=table, operation=operation):
+                    update = copy.deepcopy(self.snapshot)
+                    key = next(iter(update["records"][table]))
+                    if operation == "added":
+                        update["records"][table]["999"] = copy.deepcopy(update["records"][table][key])
+                    elif operation == "removed":
+                        del update["records"][table][key]
+                    else:
+                        update["records"][table][key]["labels"].append({"name": "Revised metadata"})
+                    scan, _ = self.build(update, "scan", full)
+                    self.assertTrue(scan["changed"])
+                    self.assertIn({"category": "records", "key": table + ":" + ("999" if operation == "added" else key), "operation": operation}, scan["snapshot"]["changes"])
+        update = copy.deepcopy(self.snapshot)
+        update["relationships"]["ca_objects_x_entities"] = {"50": {"row": {"object_id": 1, "entity_id": 30}}}
+        scan, _ = self.build(update, "scan", full)
+        self.assertTrue(scan["changed"])
+        self.assertIn({"category": "relationships", "key": "ca_objects_x_entities:50", "operation": "added"}, scan["snapshot"]["changes"])
 
     def test_metadata_only_supplement_still_contains_complete_snapshot(self):
         full, _ = self.build()
@@ -480,6 +576,8 @@ class PreservationTests(unittest.TestCase):
 
     def test_php_empty_maps_and_binary_filenames(self):
         self.snapshot["relationships"] = []
+        self.snapshot["schema"]["definitions"] = []
+        self.snapshot["schema"]["tables"] = []
         original = self.original("1", b"a")
         original["original_filename"] = {"$base64": "/2EudGlm"}
         self.snapshot["files"] = [original]
@@ -502,7 +600,7 @@ class PreservationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Insufficient free staging space"):
                 self.build()
 
-    def test_configuration_only_supplement_preserves_definitions_and_recovery(self):
+    def test_used_definition_supplement_preserves_meaning_and_recovery(self):
         self.snapshot["files"] = [self.original("1", b"unchanged original")]
         full, output = self.build()
         update = copy.deepcopy(self.snapshot)

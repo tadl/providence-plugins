@@ -47,14 +47,27 @@ By default the command captures current native catalogue metadata and reads
 each original file for SHA-256. It compares both the latest complete deposit
 and the latest manually confirmed deposit for each preservation root, rather
 than trusting the collection's modification time or an earlier saved scan.
-Catalogue definitions and the Providence installation profile are included in
-this comparison; the BagIt packaging profile is excluded. A packaging-policy
-update alone therefore does not require another deposit. If only catalogue
-configuration differs, freshness is `config_changed`; collection records,
-relationships, external references and original file identities/checksums still
-match. These definitions cover the wider installation, so a shared-field change
-or unrelated editor/relationship addition can produce this status. Configuration
-remains available for recovery and can be updated with a metadata-only supplement.
+Freshness compares collection, object and representation records/attachments,
+their direct relationships and original-file identities/checksums. Descriptions,
+labels, repeated attributes and access metadata on those records are included.
+Adding or removing a member, editing an object or representation, changing a
+direct relationship or replacing an original therefore requires attention.
+
+Related authority records remain recovery context. Adding a subject heading to
+a related person's record does not make every linked collection stale. Editor
+layouts, field validation/display settings, applicability rules, packaging policy,
+unused vocabulary/relationship definitions, hierarchy indexing and view counts
+also do not affect preservation status. The full configuration and authority
+data remain in the saved snapshot; later deposits capture their current state.
+
+The comparison retains definitions actually needed to interpret the collection's
+values: used field codes/datatypes and container ancestry, list bindings, selected
+terms and their ancestors/labels, used relationship types/labels and locales.
+A changed assigned term or used relationship meaning is thus a collection
+metadata change even when its stored numeric ID has not changed. Unused terms
+or indirect authority headings do not enter this comparison. JSON includes an
+informational `recovery_context_changed` flag; this does not change the status,
+require attention, produce a text warning or require a supplemental deposit.
 Metadata/file descriptors are captured again afterward; concurrent changes
 produce an error, not a clean result. Missing/unreadable originals, a mismatch
 against CA's recorded original MD5, or an inconsistent saved fingerprint also
@@ -74,7 +87,7 @@ completed baseline. Reports also recognize the exact historical empty-supplement
 error as `unchanged`, retaining `recorded_status` in JSON without rewriting the
 stored job. Real failures are not suppressed. Confirmation and freshness remain
 separate: confirmation is evidence about that deposited version, rather than a
-claim that all later catalogue configuration still matches it.
+claim that all later installation settings still match it.
 
 Organizational markers and hierarchy placement select eligible roots using the
 same rule as deposit creation and the editor menu. See
@@ -108,7 +121,6 @@ checked deposit root, latest attempt, attention flags and totals by status.
 | --- | --- |
 | `current` | A confirmed deposit matches the eligible root's complete current hierarchy |
 | `out_of_date` | A directly checked collection differs from its latest confirmed or complete deposit |
-| `config_changed` | Collection records and originals match, but the recovery configuration differs; any recorded preservation confirmation remains valid for its deposited version |
 | `deposit_failed` | The latest deposit attempt failed; any earlier completed or confirmed deposit retains its own freshness status |
 | `awaiting_confirmation` | Current content has been uploaded; matching preservation has not been confirmed |
 | `local_only` | A local package matches, without confirmed remote preservation |
@@ -138,7 +150,7 @@ sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
 History-only mode can show `deposit_failed` from recorded job history, but never
-labels freshness `current`, `out_of_date` or `config_changed`. Its recorded
+labels freshness `current` or `out_of_date`. Its recorded
 confirmations and delivery states remain available, but freshness is explicitly
 `not_checked`. Collections with no history can still be identified, unless
 coverage information is damaged. This mode does not require a working Python

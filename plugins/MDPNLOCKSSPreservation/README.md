@@ -183,12 +183,25 @@ take time for large collections. Change detection runs when a scan or deposit
 is requested; it does not run automatically on every catalogue save. A previous
 scan describes its capture time, not subsequent edits.
 
-Packaging settings and their source/version information do not mark a collection
-out of date or justify a supplement. Changes to catalogue definitions and the
-Providence installation profile still count, because they affect interpretation
-and recovery of the metadata. When those are the only differences, the report
-uses `config_changed` rather than `out_of_date`. Confirmation remains recorded;
-the collection's records and original files still match the confirmed deposit.
+Preservation freshness follows the collection hierarchy, objects,
+representations and attachments, their direct relationships, and the uploaded
+originals. Changes to those records or files require attention. A confirmed
+deposit that still matches is `current`: preservation succeeded and the
+collection content has not changed.
+
+Editor layouts, validation settings, packaging policy and unused definitions do
+not make the collection stale. Neither do descriptive edits to a related person
+or place, such as adding subject headings to that person's record. Those records
+remain in the full recovery snapshot and are updated in the next deposit, but
+do not by themselves justify a supplement. Generated hierarchy indexes and view
+counters are also excluded from freshness checks.
+
+Definitions are significant only when needed to interpret values actually used
+by the collection's own records or direct relationships. Renaming an assigned
+subject term, changing a used relationship's meaning or changing a used metadata
+field's code/datatype can therefore require attention. Adding unused terms,
+relationship types or field applicability rules cannot. The complete raw schema
+is still saved for recovery; it is not the collection's preservation status.
 
 The page shows the most recent 100 jobs and the first 200 change entries for a
 job. The complete history remains in the private ledger, and the bags retain
@@ -214,9 +227,10 @@ successful baseline. Older empty-supplement attempts that were recorded with the
 specific no-changes error display the same outcome; their stored history is not
 rewritten. Actual packaging and transfer failures remain failures.
 
-Global configuration changes can produce a metadata-only supplement even when
-collection records and originals match. Review `config_changed` separately from
-content changes; a new full deposit is not required just to update configuration.
+Relevant metadata changes can produce a supplement containing no new original
+bytes. Background recovery-context changes are captured with the next such
+deposit or a requested new full deposit. No configuration warning or separate
+deposit is required just because installation settings changed.
 
 A **part** is a physical subdivision of one deposit, not a separate revision.
 Every part repeats the complete metadata snapshot and inventory. A multipart

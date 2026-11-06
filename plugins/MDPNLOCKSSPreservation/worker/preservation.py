@@ -23,7 +23,7 @@ import tarfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.8"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.9"
 
 
 def encoded(value):
@@ -96,22 +96,99 @@ def fingerprint(snapshot):
     return hashlib.sha256(encoded(content)).hexdigest()
 
 
+PRIMARY_TABLES = {"ca_collections", "ca_objects", "ca_object_representations", "ca_attribute_value_multifiles"}
+MEANING_FIELDS = {
+    "ca_locales": ("locale_id", "name", "language", "country", "dialect"),
+    "ca_metadata_elements": ("element_id", "element_code", "datatype", "list_id", "parent_id", "deleted"),
+    "ca_metadata_element_labels": ("element_id", "locale_id", "name", "description", "is_preferred"),
+    "ca_lists": ("list_id", "list_code", "is_hierarchical", "deleted"),
+    "ca_list_labels": ("list_id", "locale_id", "name"),
+    "ca_list_items": ("item_id", "list_id", "parent_id", "idno", "item_value", "deleted"),
+    "ca_list_item_labels": ("item_id", "locale_id", "name_singular", "name_plural", "description", "is_preferred", "sdatetime", "edatetime"),
+    "ca_relationship_types": ("type_id", "table_num", "type_code", "parent_id", "sub_type_left_id", "sub_type_right_id"),
+    "ca_relationship_type_labels": ("type_id", "locale_id", "typename", "typename_reverse", "description", "description_reverse"),
+}
+DEFINITION_LABELS = {
+    "ca_metadata_elements": ("ca_metadata_element_labels", "element_id"),
+    "ca_lists": ("ca_list_labels", "list_id"),
+    "ca_list_items": ("ca_list_item_labels", "item_id"),
+    "ca_relationship_types": ("ca_relationship_type_labels", "type_id"),
+}
+
+
+def collection_records(snapshot):
+    # Authority descriptions remain recovery context, rather than making every
+    # collection linked to that person stale when their subject headings change.
+    result = {}
+    for table, rows in snapshot["records"].items():
+        if table not in PRIMARY_TABLES and not table.startswith("ca_object_representation_"):
+            continue
+        result[table] = {key: {**record, "row": {k: v for k, v in record.get("row", {}).items()
+                                              if k not in ("hier_left", "hier_right", "view_count")}}
+                         for key, record in rows.items()}
+    return result
+
+
 def catalogue_schema(snapshot):
-    return {k: v for k, v in snapshot["schema"].items() if k != "bagit_profile"}
+    """Only definitions needed to interpret the collection's actual values."""
+    definitions = snapshot["schema"].get("definitions") or {}
+    tables = snapshot["schema"].get("tables") or {}
+    pending, seen, result, labels = [], set(), {}, {}
+    for owner, (table, field) in DEFINITION_LABELS.items():
+        for key, row in (definitions.get(table) or {}).items():
+            labels.setdefault((owner, str(row[field])), []).append((table, str(key)))
+
+    def add(table, key):
+        if table in MEANING_FIELDS and key not in (None, "", 0, "0"):
+            pending.append((table, str(key)))
+
+    def references(table, row):
+        for relation in (tables.get(table, {}).get("foreign_keys") or {}).values():
+            add(relation["one_table"], row.get(relation["many_table_field"]))
+        for field, target in (("element_id", "ca_metadata_elements"), ("item_id", "ca_list_items"),
+                              ("list_id", "ca_lists"), ("locale_id", "ca_locales")):
+            add(target, row.get(field))
+        if table in MEANING_FIELDS:
+            add(table, row.get("parent_id"))
+
+    for category in (collection_records(snapshot), snapshot["relationships"]):
+        for table, rows in category.items():
+            for record in rows.values():
+                references(table, record.get("row", {}))
+                for label in record.get("labels", []):
+                    references(tables.get(table, {}).get("label_table"), label)
+                for attribute in record.get("attributes", []):
+                    references("ca_attributes", attribute.get("row", {}))
+                    for value in attribute.get("values", []):
+                        references("ca_attribute_values", value)
+    while pending:
+        table, key = pending.pop()
+        if (table, key) in seen:
+            continue
+        seen.add((table, key))
+        row = (definitions.get(table) or {}).get(key)
+        semantic = {k: row[k] for k in MEANING_FIELDS[table] if k in row} if isinstance(row, dict) else row
+        result.setdefault(table, {})[key] = semantic
+        if isinstance(semantic, dict):
+            references(table, semantic)
+            pending.extend(labels.get((table, key), []))
+    return result
 
 
 def content_fingerprint(snapshot):
-    # Packaging policy stays in the integrity fingerprint of every saved bag,
-    # but does not establish whether its catalogue content needs another deposit.
-    return fingerprint({**snapshot, "schema": catalogue_schema(snapshot)})
+    # The complete schema and authority context stay protected by the original
+    # integrity fingerprint. Freshness follows collection content and its meaning.
+    return fingerprint({**snapshot, "records": collection_records(snapshot), "schema": catalogue_schema(snapshot), "external_references": []})
 
 
 def changes(current, previous=None):
     previous = previous or {"records": {}, "relationships": {}, "files": [], "schema": {}}
     result = []
     for category in ("records", "relationships"):
-        old = {t + ":" + str(k): v for t, rows in previous[category].items() for k, v in rows.items()}
-        new = {t + ":" + str(k): v for t, rows in current[category].items() for k, v in rows.items()}
+        old_rows = collection_records(previous) if category == "records" else previous[category]
+        new_rows = collection_records(current) if category == "records" else current[category]
+        old = {t + ":" + str(k): v for t, rows in old_rows.items() for k, v in rows.items()}
+        new = {t + ":" + str(k): v for t, rows in new_rows.items() for k, v in rows.items()}
         for key in sorted(old.keys() | new.keys()):
             operation = "added" if key not in old else "removed" if key not in new else "changed" if old[key] != new[key] else None
             if operation:
@@ -140,13 +217,8 @@ def compare_report(request):
         if saved.get("format") != FORMAT or saved.get("deposit_id") != job_id or any(saved[k] != current[k] for k in ("repository_id", "collection_id")) or saved.get("fingerprint") != fingerprint(saved):
             raise ValueError("A preservation baseline is inconsistent or corrupt")
         counts = Counter(change["category"] + "_" + change["operation"] for change in changes(current, saved))
-        if current.get("external_references", []) != saved.get("external_references", []):
-            counts["external_references_changed"] += 1
         matches = current_fingerprint == content_fingerprint(saved)
-        # Keep recovery configuration changes visible without calling unchanged
-        # collection records and originals out of date. Saved integrity is intact.
-        configuration_only = not matches and fingerprint({**current, "schema": saved["schema"]}) == saved["fingerprint"]
-        comparisons[job_id] = {"current": matches, "configuration_only": configuration_only, "changes": dict(counts)}
+        comparisons[job_id] = {"current": matches, "recovery_context_changed": matches and fingerprint(current) != saved["fingerprint"], "changes": dict(counts)}
     return {"checked_at": current["captured_at"], "comparisons": comparisons}
 
 

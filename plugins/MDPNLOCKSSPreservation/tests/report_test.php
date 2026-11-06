@@ -92,9 +92,14 @@ try {
 	$originalProfile = $catalogue->profileXml;
 	$catalogue->profileXml = '<profile><profileName>Synthetic</profileName><userInterfaces>Revised editor</userInterfaces></profile>';
 	$rows = index_rows($reporter->run($user));
-	check($rows[1]['status'] === 'config_changed' && $rows[1]['preservation']['freshness'] === 'config_changed'
-		&& $rows[1]['latest_deposit']['freshness'] === 'config_changed' && $rows[1]['preservation']['delivery_status'] === 'confirmed'
-		&& $rows[1]['preservation']['changes_in_deposit_root'] === ['schema_changed' => 1],'Configuration-only drift is distinct from collection content changes and retains confirmation');
+	check($rows[1]['status'] === 'current' && $rows[1]['preservation']['freshness'] === 'current'
+		&& $rows[1]['latest_deposit']['freshness'] === 'current' && $rows[1]['preservation']['delivery_status'] === 'confirmed'
+		&& !$rows[1]['attention_required'] && $rows[1]['preservation']['recovery_context_changed']
+		&& $rows[1]['preservation']['changes_in_deposit_root'] === [],'Installation-only changes leave confirmed collection preservation current without attention');
+	$catalogue->data['ca_entities'][30]['idno'] = 'Changed related-person context';
+	$rows = index_rows($reporter->run($user));
+	check($rows[1]['status'] === 'current' && !$rows[1]['attention_required'],'Related authority edits do not make the collection stale');
+	unset($catalogue->data['ca_entities'][30]['idno']);
 	$catalogue->profileXml = $originalProfile;
 	$catalogue->data['ca_object_labels'][1]['name'] = 'Changed object metadata';
 	$changed = $reporter->run($user); $rows = index_rows($changed);
@@ -169,10 +174,10 @@ try {
 		&& $rows[1]['latest_attempt']['recorded_status'] === 'failed' && private_tree($root) === $beforeLegacy,'Legacy no-change attempts are reported accurately without rewriting history or confirmation');
 	$catalogue->profileXml = '<profile><profileName>Synthetic</profileName><userInterfaces>Revised editor</userInterfaces></profile>';
 	$rows = index_rows($reporter->run($user));
-	check($rows[1]['status'] === 'config_changed' && $rows[1]['latest_attempt']['status'] === 'unchanged','An old empty-supplement refusal does not hide configuration-only drift');
+	check($rows[1]['status'] === 'current' && $rows[1]['latest_attempt']['status'] === 'unchanged','An old empty supplement and editor changes do not obscure current confirmed preservation');
 	$store->update($legacy['id'],['error' => $legacyError.' Different failure.']);
 	$rows = index_rows($reporter->run($user));
-	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'config_changed','Only the exact historical refusal is a no-op; genuine failures remain visible');
+	check($rows[1]['status'] === 'deposit_failed' && $rows[1]['preservation']['freshness'] === 'current','Real failures remain visible alongside current confirmed preservation');
 	define('__CA_DISABLE_ACL__',true);
 	fails(function() use ($reporter,$user) { $reporter->run($user); },'native ACL checks enabled');
 	print "Preservation maintenance report, inherited coverage, freshness and read-only checks passed.\n";

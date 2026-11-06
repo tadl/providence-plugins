@@ -206,15 +206,23 @@ external references and original file identities/checksums. Capture timestamps,
 bag locations and deposit identifiers are excluded. This existing fingerprint
 format remains unchanged for verification of earlier deposits.
 
-Freshness checks compute a separate content comparison from both snapshots,
-excluding only the BagIt packaging profile from the schema. Packaging settings,
-policy provenance or contact changes alone cannot make a collection stale or
-justify a supplement. Catalogue definition and installation-profile changes
-remain significant, but are reported as `config_changed` when collection rows,
-relationships, external references and original files still match. Such a
-metadata-only supplement retains the new configuration and depends on earlier
-bags for unchanged originals. A requested new full deposit still records the current
-packaging policy, including when the collection content is unchanged.
+Freshness uses a separate collection-content comparison. It includes collection,
+object and representation records/attachments, their direct relationships,
+original identities/checksums and referenced definitions that give those values
+their meaning. The complete schema and related-authority records remain part of
+the integrity-protected recovery snapshot even when edits to them do not require
+another deposit. Source hierarchy indexes and view counters are retained there
+but excluded from freshness. A related person's new subject heading, editor or
+validation setting, unused term or packaging-policy change cannot make collection
+preservation stale. A changed used field code/datatype, selected vocabulary term
+or relationship definition can. JSON can separately indicate recovery-context
+differences without affecting status or attention.
+
+A relevant metadata-only supplement retains the complete current snapshot and
+depends on earlier bags for unchanged originals. A requested new full deposit
+records all current recovery context and packaging policy even when the
+collection content is unchanged. Existing bags, fingerprints and confirmation
+records are never rewritten to apply the narrower freshness comparison.
 
 A supplemental attempt with neither content nor configuration changes completes
 as `unchanged` and produces no bag or recovery-chain entry. It never becomes a
