@@ -163,9 +163,15 @@ catalogue size are necessary before rollout. Sync is also proportional to
 catalogue size; stop other writers during large imports and initial migration.
 
 After ACL changes, search/browse cache namespaces are invalidated. Saved object
-and collection result lists are invalidated per session on a changed projection,
-while query text and authority result contexts are preserved. Sessions are never
-globally flushed.
+and collection navigation retains the existing result order and removes only
+records the current user can no longer read, including deleted records. The
+per-session revision tracks that user's readable record IDs in canonical order,
+so imports into unrelated collection roots do not reset navigation. Newly
+readable records are not inserted into an existing navigation list; search and
+browse refresh normally when revisited. A changed revision discards cached match
+descriptions and marks queries for refresh while preserving their text and
+settings. Authority result contexts are preserved. Sessions are never globally
+flushed.
 
 Runtime registration uses native AppController plugins. An idempotent
 `hookAddDomainSecurityPolicy` callback handles early plugin initialization,

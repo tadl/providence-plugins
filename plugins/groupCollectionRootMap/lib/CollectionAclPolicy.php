@@ -66,6 +66,25 @@ class CollectionAclPolicy {
 		]];
 	}
 
+	/** Readable record sets for one user, ordered independently of database row order. */
+	public static function readableRecordIDs(array $projection, int $user_id) : array {
+		$memberships = array_fill_keys($projection['memberships'][$user_id] ?? [], true);
+		$readable = [];
+		foreach (self::TABLES as $table) {
+			$readable[$table] = [];
+			foreach ($projection['grants'][$table] ?? [] as $id => $codes) {
+				foreach ($codes as $code) {
+					if (isset($memberships[$code])) {
+						$readable[$table][(int)$id] = true;
+						break;
+					}
+				}
+			}
+			ksort($readable[$table], SORT_NUMERIC);
+		}
+		return $readable;
+	}
+
 	public static function grantKeys(array $projection) : array {
 		$keys = [];
 		foreach ($projection['grants'] as $table => $records) {

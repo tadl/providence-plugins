@@ -97,6 +97,13 @@ try {
 	foreach ([12,34,56,78] as $user) {
 		foreach ($objects as $id) { expect((permitted($user, 'ca_objects', $id) > 0) === in_array($id, hits($user, 'ca_objects', $objects)), 'Native direct access and result filtering agree'); }
 	}
+	$projection = $sync->inspect()['projection'];
+	foreach ([12,34,56,78,90] as $user) {
+		$readable = CollectionAclPolicy::readableRecordIDs($projection, $user);
+		foreach (['ca_objects' => $objects, 'ca_collections' => $collections] as $table => $ids) {
+			expect(array_keys($readable[$table]) === hits($user, $table, $ids), 'Readable navigation IDs match native ACL filtering for each user and table');
+		}
+	}
 	foreach (['ca_entities','ca_places','ca_occurrences'] as $table) {
 		expect(caACLIsEnabled(Datamodel::getInstanceByTableName($table,true), []) === false, $table.' remains global');
 		expect(permitted(12, $table, 8001) > 0, 'Native authority ACL check remains open');
@@ -122,11 +129,85 @@ try {
 	expect($context['result_list'] === [] && $context['param_invalid_cache'] === 1 && $context['search_expression'] === 'archive', 'Stale object results are discarded while preserving query');
 	expect(ResultContextStorage::$vars['result_context_ca_collections_browse_objects']['result_list'] === [], 'Typed collection result contexts are invalidated');
 	expect(ResultContextStorage::$vars['result_context_ca_entities_basic_search']['result_list'] === [8001], 'Authority result contexts stay global and intact');
-	expect(ResultContextStorage::$saved > 0, 'Cleared contexts are persisted before marking the revision current');
+	expect(ResultContextStorage::$saved > 0, 'Filtered contexts are persisted before marking the revision current');
+	$revision = Session::getVar('groupCollectionRootMap_acl_revision');
+	$revoked_projection = $sync->inspect()['projection'];
+	unset($revoked_projection['grants']['ca_objects'][1001]);
 	ResultContextStorage::$fail_save = true;
-	refuses(fn() => CollectionAclRuntime::refreshResultContexts($runtime->request, 'new-revision'), 'Saved-context persistence failure blocks access');
-	expect(Session::getVar('groupCollectionRootMap_acl_revision') !== 'new-revision', 'A failed saved-context update is never marked current');
+	refuses(fn() => CollectionAclRuntime::refreshResultContexts($runtime->request, $revoked_projection), 'Saved-context persistence failure blocks access');
+	expect(Session::getVar('groupCollectionRootMap_acl_revision') === $revision, 'A failed saved-context update never advances the revision');
 	ResultContextStorage::$fail_save = false;
+
+	// Upgrade existing sessions without losing readable navigation snapshots.
+	Session::setVar('groupCollectionRootMap_acl_revision', 'legacy-global-projection');
+	ResultContextStorage::$vars['result_context_ca_objects'] = ['result_list' => [4001,'1002',1001]];
+	ResultContextStorage::$vars['result_context_ca_objects_basic_search'] = [
+		'result_list' => ['3001',4001,1002,1001,'1001junk',[1001],null,1001.0,true,0], 'result_desc' => [4001 => ['desc' => 'stale']],
+		'expression' => 'collection:101', 'sort' => 'ca_objects.idno', 'param_invalid_cache' => 0
+	];
+	ResultContextStorage::$vars['result_context_ca_collections_browse_objects'] = ['result_list' => [103,999,101,102]];
+	$runtime->routeStartup();
+	$context = ResultContextStorage::$vars['result_context_ca_objects_basic_search'];
+	expect($context['result_list'] === ['3001',1002,1001], 'Upgrade filters revoked and malformed IDs while retaining original ID types, order and dense indexes');
+	expect(ResultContextStorage::$vars['result_context_ca_objects']['result_list'] === ['1002',1001], 'The base table context also retains its readable ordered snapshot');
+	expect($context['result_desc'] === [] && $context['param_invalid_cache'] === 1, 'A changed readable revision clears stale match descriptions and flags a fresh search');
+	expect($context['expression'] === 'collection:101' && $context['sort'] === 'ca_objects.idno', 'Filtering preserves the search expression and sort');
+	expect(ResultContextStorage::$vars['result_context_ca_collections_browse_objects']['result_list'] === [103,101,102], 'Collection navigation retains only readable records in its original order');
+	expect(ResultContextStorage::$vars['result_context_ca_entities_basic_search']['result_list'] === [8001], 'Authority results remain untouched during an upgrade');
+
+	$ordered_projection = $sync->inspect()['projection'];
+	$reordered_projection = $ordered_projection;
+	$reordered_projection['memberships'] = array_reverse($reordered_projection['memberships'], true);
+	foreach ($reordered_projection['grants'] as $table => $records) {
+		$reordered_projection['grants'][$table] = array_reverse($records, true);
+		foreach ($reordered_projection['grants'][$table] as $id => $codes) {
+			$reordered_projection['grants'][$table][$id] = array_reverse($codes);
+		}
+	}
+	$saved = ResultContextStorage::$saved;
+	$contexts = ResultContextStorage::$vars;
+	CollectionAclRuntime::refreshResultContexts($runtime->request, $reordered_projection);
+	expect(ResultContextStorage::$saved === $saved && ResultContextStorage::$vars === $contexts, 'Equivalent projection ordering causes no context update or storage write');
+
+	// A background import in another tree must not erase this user's results.
+	Db::$pdo->exec('INSERT INTO ca_objects VALUES (7001,NULL,0,0,0);
+		INSERT INTO ca_objects_x_collections VALUES (7001,203,1)');
+	$sync->apply($sync->inspect(), null, true);
+	$runtime->routeStartup();
+	expect(ResultContextStorage::$vars === $contexts && ResultContextStorage::$saved === $saved, 'An unrelated imported object leaves saved navigation and context storage untouched');
+	expect(permitted(34,'ca_objects',7001) === 3 && permitted(12,'ca_objects',7001) === 0, 'The unrelated import still receives its native tree permissions');
+
+	// Newly accessible records refresh searches without joining an old snapshot.
+	ResultContextStorage::$vars['result_context_ca_objects_basic_search']['param_invalid_cache'] = 0;
+	ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_desc'] = [1001 => ['desc' => 'old match']];
+	Db::$pdo->exec('INSERT INTO ca_objects VALUES (7002,NULL,0,0,0);
+		INSERT INTO ca_objects_x_collections VALUES (7002,102,1)');
+	$sync->apply($sync->inspect(), null, true);
+	$runtime->routeStartup();
+	$context = ResultContextStorage::$vars['result_context_ca_objects_basic_search'];
+	expect($context['result_list'] === ['3001',1002,1001], 'A same-tree import preserves the ordered navigation snapshot without adding the new object');
+	expect($context['param_invalid_cache'] === 1 && $context['result_desc'] === [] && ResultContextStorage::$saved > $saved, 'New readable IDs invalidate cached searches while preserving the snapshot');
+
+	$projection = $sync->inspect()['projection'];
+	$deleted_projection = $projection;
+	unset($deleted_projection['grants']['ca_objects'][1002]);
+	CollectionAclRuntime::refreshResultContexts($runtime->request, $deleted_projection);
+	expect(ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] === ['3001',1001], 'A deleted record is removed without dropping other navigation IDs');
+	$missing_membership = $projection;
+	unset($missing_membership['memberships'][12]);
+	$readable = CollectionAclPolicy::readableRecordIDs($missing_membership, 12);
+	expect($readable === ['ca_collections' => [], 'ca_objects' => []], 'Missing user membership grants no readable IDs');
+	CollectionAclRuntime::refreshResultContexts($runtime->request, $missing_membership);
+	expect(ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] === []
+		&& ResultContextStorage::$vars['result_context_ca_collections_browse_objects']['result_list'] === [], 'Missing membership removes object and collection navigation');
+	$runtime->request->user = new ca_users(90);
+	ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] = [4001,1001];
+	$saved = ResultContextStorage::$saved;
+	$runtime->routeStartup();
+	expect(ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] === [4001,1001]
+		&& ResultContextStorage::$saved === $saved, 'Administrators retain the native navigation bypass without context writes');
+	$runtime->request->user = new ca_users(12);
+	$runtime->routeStartup();
 
 	// A pending collection attached by the native editor in postSave must grant
 	// the creator access during the rest of the insert transaction.
@@ -147,11 +228,15 @@ try {
 	CollectionAclSynchronizer::$dirty = true;
 	$runtime->postDispatch();
 	expect(!$sync::needsChanges($sync->inspect()), 'Post-save synchronization settles persisted membership');
+	$runtime->routeStartup();
+	ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] = [3001,'8001',1002,1001];
 	Db::$pdo->exec('DELETE FROM ca_objects_x_collections WHERE object_id = 8001');
 	refuses(fn() => $runtime->routeStartup(), 'A stale relationship deletion blocks subsequent reads');
 	$runtime->request->method = 'POST';
 	$runtime->postDispatch();
 	expect(permitted(12,'ca_objects',8001) === 0, 'Native relationship deletion removes previous tree access');
+	$runtime->routeStartup();
+	expect(ResultContextStorage::$vars['result_context_ca_objects_basic_search']['result_list'] === [3001,1002,1001], 'Revoked relationship access prunes only that hit and keeps dense ordered navigation');
 	Db::$pdo->exec('UPDATE ca_collections SET parent_id=202 WHERE collection_id=102');
 	$runtime->postDispatch();
 	expect(hits(12,'ca_objects',$objects) === [], 'Moving a collection removes its subtree from the previous root');

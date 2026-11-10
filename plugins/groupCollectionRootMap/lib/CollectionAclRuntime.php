@@ -18,7 +18,7 @@ class CollectionAclRuntime extends AppControllerPlugin {
 		if ($plan['collisions'] || CollectionAclSynchronizer::needsChanges($plan)) {
 			throw new ApplicationException(_t('Collection permissions need synchronization. Contact an administrator.'));
 		}
-		self::refreshResultContexts($request, hash('sha256', serialize($plan['projection'])));
+		self::refreshResultContexts($request, $plan['projection']);
 	}
 
 	public function postDispatch() {
@@ -34,9 +34,12 @@ class CollectionAclRuntime extends AppControllerPlugin {
 		CollectionAclSynchronizer::$dirty = false;
 	}
 
-	public static function refreshResultContexts($request, string $fingerprint) : void {
+	public static function refreshResultContexts($request, array $projection) : void {
 		require_once __CA_LIB_DIR__.'/ResultContext.php';
 		ResultContextStorage::init($request);
+		$user_id = (int)$request->user->getPrimaryKey();
+		$readable = CollectionAclPolicy::readableRecordIDs($projection, $user_id);
+		$fingerprint = hash('sha256', serialize([$user_id, $readable]));
 		if (Session::getVar('groupCollectionRootMap_acl_revision') === $fingerprint) { return; }
 		$types = array_keys(ResultContextStorage::getVar('used_find_types') ?: []);
 		foreach (CollectionAclPolicy::TABLES as $table) {
@@ -45,7 +48,10 @@ class CollectionAclRuntime extends AppControllerPlugin {
 			foreach ($keys as $key) {
 				$context = ResultContextStorage::getVar($key);
 				if (!is_array($context)) { continue; }
-				$context['result_list'] = [];
+				// Keep the ordered search snapshot across imports; prune revoked or deleted hits.
+				$context['result_list'] = array_values(array_filter($context['result_list'] ?? [], function($id) use ($readable, $table) {
+					return (is_int($id) || (is_string($id) && ctype_digit($id))) && isset($readable[$table][$id]);
+				}));
 				$context['result_desc'] = [];
 				$context['param_invalid_cache'] = 1;
 				ResultContextStorage::setVar($key, $context);
