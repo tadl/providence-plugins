@@ -20,10 +20,10 @@ $download = static function($id) use ($request) { return caNavUrl($request,'file
 		.file-health th { white-space: nowrap; }
 		.file-health caption { text-align: left; padding: 0 8px 8px; }
 	</style>
-	<h1><?php print _t('File health'); ?></h1>
+	<h1 id="file-health-status"><?php print _t('File health'); ?></h1>
 	<p><?php print _t('Native media-integrity patrols and their reports. This page reads saved run records; opening it does not check or change files.'); ?></p>
 <?php if ($error) { ?>
-	<p class="health-notice" role="status"><?php print Health::escape($error); ?></p>
+	<p id="file-health-history" class="health-notice" role="status"><?php print Health::escape($error); ?></p>
 <?php } elseif (is_array($summary)) {
 	$latest = $summary['latest_run'] ?? null; $completed = $summary['last_completed_run'] ?? null;
 	$active = $summary['active_run'] ?? null;
@@ -63,7 +63,7 @@ $download = static function($id) use ($request) { return caNavUrl($request,'file
 <?php if (!empty($summary['untracked_reports'])) { ?>
 	<p class="health-notice"><?php print Health::integer($summary['untracked_reports']); ?> <?php print _t('untracked native report(s) found. Their completion and scope were not recorded; report dates are file dates, not patrol completion times.'); ?></p>
 <?php } ?>
-	<h2><?php print _t('Recent patrols and reports'); ?></h2>
+	<h2 id="file-health-history"><?php print _t('Recent patrols and reports'); ?></h2>
 <?php if (!$runs) { ?>
 	<p><?php print _t('No patrol records or native reports are available.'); ?></p>
 <?php } else { ?>

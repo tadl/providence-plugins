@@ -19,7 +19,11 @@ class HealthTestView {
 class ActionController {
 	protected $request; protected $response; public $view; public $html = '';
 	public function __construct(&$request,&$response,$paths=null) { $this->request=$request; $this->response=$response; $this->view=new HealthTestView(); }
-	public function render($file) { $this->html=$this->view->render($file); }
+	public function render($file,$returnOnly=false) {
+		$html=$this->view->render($file);
+		if (!$returnOnly) { $this->html=$html; }
+		return $html;
+	}
 }
 class HealthTestUser {
 	public $admin=true; public $active=true; public $id=7;
@@ -28,10 +32,12 @@ class HealthTestUser {
 	public function canDoAction($action) { return $this->admin && $action==='is_administrator'; }
 }
 class HealthTestRequest {
-	public $user; public $loggedIn=true; public $parameters=[];
+	public $user; public $loggedIn=true; public $parameters=[]; public $module='fileHealth'; public $controller='Health';
 	public function __construct() { $this->user=new HealthTestUser(); }
 	public function isLoggedIn() { return $this->loggedIn; }
 	public function getParameter($key,$type) { return $this->parameters[$key] ?? null; }
+	public function getModulePath() { return $this->module; }
+	public function getController() { return $this->controller; }
 }
 class HealthTestResponse { public $headers=[]; public function addHeader($key,$value) { $this->headers[$key]=$value; } }
 class Configuration {
@@ -99,6 +105,20 @@ try {
 	HealthTestStore::$runs=[$failed,$complete,$legacy];
 	$request=new HealthTestRequest(); $response=new HealthTestResponse();
 	$controller=new TestHealthController($request,$response); $controller->Index(); $html=$controller->html;
+	$reads=HealthTestStore::$reads; $sidebar=$controller->Info([]);
+	$sidebarDom=new DOMDocument(); @$sidebarDom->loadHTML($sidebar); $xpath=new DOMXPath($sidebarDom);
+	$links=$xpath->query('//nav[@aria-label="File health"]//a');
+	healthAssert($links->length===3 && strpos($sidebar,'Patrol status')!==false && strpos($sidebar,'Check history')!==false,'File health sidebar navigation is empty.');
+	foreach (['file-health-status','file-health-history'] as $anchor) {
+		healthAssert(strpos($sidebar,'#'.$anchor)!==false && strpos($html,'id="'.$anchor.'"')!==false,'Sidebar link has no matching page target.');
+	}
+	healthAssert($xpath->query('//a[@aria-current="page" and contains(@href,"#file-health-status")]')->length===1,'Current sidebar page is not identified.');
+	healthAssert(strpos($sidebar,'//Dashboard/Index')!==false,'Sidebar dashboard route is missing.');
+	healthAssert($controller->html===$html && HealthTestStore::$reads===$reads,'Sidebar replaced page content or opened patrol storage.');
+	$request->user->admin=false;
+	try { $controller->Info(); healthAssert(false,'Sidebar did not recheck administrator access.'); }
+	catch (ApplicationException $error) { healthAssert(HealthTestStore::$reads===$reads,'Unauthorized sidebar opened patrol storage.'); }
+	$request->user->admin=true;
 	healthAssert(strpos($html,'No errors reported')!==false && strpos($html,'Last completed full patrol:')!==false,'Native patrol outcome or full-patrol date missing.');
 	healthAssert(strpos($html,'Untracked report')!==false && strpos($html,'Completion was not recorded.')!==false && strpos($html,'Report date:')!==false,'Legacy report completion was misrepresented.');
 	healthAssert(strpos($html,'Scope was not recorded')!==false,'Legacy report scope was inferred.');
@@ -116,6 +136,7 @@ try {
 	healthAssert(strpos($controller->html,'No completed full patrol is recorded.')!==false,'Missing full completion evidence was hidden.');
 	HealthTestStore::$fail=true; $controller=new TestHealthController($request,$response); $controller->Index();
 	healthAssert(strpos($controller->html,'Patrol results are unavailable')!==false && strpos($controller->html,'synthetic-secret')===false,'Report-directory errors leaked.');
+	healthAssert(strpos($controller->html,'id="file-health-history"')!==false,'Unavailable history lost its sidebar destination.');
 	HealthTestStore::$fail=false; HealthTestStore::$report=$directory.'/native-report.txt';
 	file_put_contents(HealthTestStore::$report,"Filename,Issue\nsynthetic.tif,Checksum mismatch\n"); $before=hash_file('sha256',HealthTestStore::$report);
 	$request->parameters=['run_id'=>str_repeat('a',32)]; $controller=new TestHealthController($request,$response); $controller->Download();
@@ -148,6 +169,16 @@ try {
 	healthAssert($plugin->hookRenderMenuBar($menu)===$menu,'Non-administrator received file health navigation.');
 	BaseApplicationPlugin::$request=new HealthTestRequest(); $navigation=$plugin->hookRenderMenuBar($menu);
 	healthAssert(isset($navigation['manage']['navigation']['existing']) && ($navigation['manage']['navigation']['file_health']['default']['module'] ?? null)==='fileHealth','Menu did not preserve native entries and route.');
+	$widgets=['existing'=>['domain'=>['module'=>'other','controller'=>'Other']]];
+	$revised=$plugin->hookRenderWidgets($widgets);
+	healthAssert(($revised['existing'] ?? null)===$widgets['existing'] && ($revised['file_health_navigation']['handler'] ?? null)===
+		['module'=>'fileHealth','controller'=>'Health','action'=>'Info','isplugin'=>true],'Sidebar did not register a native plugin Info handler or preserve existing widgets.');
+	healthAssert(($revised['file_health_navigation']['domain'] ?? null)===['module'=>'fileHealth','controller'=>'Health'],'Sidebar handler has the wrong route domain.');
+	BaseApplicationPlugin::$request->module='manage'; healthAssert($plugin->hookRenderWidgets($widgets)===$widgets,'Sidebar leaked onto another module.');
+	BaseApplicationPlugin::$request->module='fileHealth'; BaseApplicationPlugin::$request->controller='Other'; healthAssert($plugin->hookRenderWidgets($widgets)===$widgets,'Sidebar leaked onto another controller.');
+	BaseApplicationPlugin::$request->controller='Health'; BaseApplicationPlugin::$request->user->admin=false; healthAssert($plugin->hookRenderWidgets($widgets)===$widgets,'Non-administrator received sidebar registration.');
+	BaseApplicationPlugin::$request->user->admin=true; Configuration::$enabled=false;
+	$disabled=new fileHealthPlugin(dirname(__DIR__)); healthAssert($disabled->hookRenderWidgets($widgets)===$widgets,'Disabled plugin registered a sidebar.');
 	healthAssert(!method_exists($plugin,'hookCLICaUtilsGetCommands'),'Custom checker CLI registration remains.');
 	print "File health UI checks passed ($assertions assertions).\n";
 } finally {

@@ -13,6 +13,17 @@ class fileHealthPlugin extends BaseApplicationPlugin {
 	public function checkStatus() {
 		return ['description' => $this->getDescription(),'errors' => [],'warnings' => [],'available' => $this->config->enabled()];
 	}
+	public function hookRenderWidgets($widgets) {
+		$request = $this->getRequest();
+		if (!$this->config->enabled() || !\FileHealth\Presentation::allowed($request) || !is_array($widgets)
+			|| $request->getModulePath() !== 'fileHealth' || $request->getController() !== 'Health') { return $widgets; }
+		$widgets['file_health_navigation'] = [
+			'domain' => ['module' => 'fileHealth','controller' => 'Health'],
+			'handler' => ['module' => 'fileHealth','controller' => 'Health','action' => 'Info','isplugin' => true],
+			'parameters' => []
+		];
+		return $widgets;
+	}
 	public function hookRenderMenuBar($menu) {
 		if (!$this->config->enabled() || !\FileHealth\Presentation::allowed($this->getRequest()) || !is_array($menu)) { return $menu; }
 		$item = ['displayName' => _t('File health'),'default' => ['module' => 'fileHealth','controller' => 'Health','action' => 'Index'],

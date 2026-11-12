@@ -20,6 +20,12 @@ class HealthController extends ActionController {
 	private function authorize() : void {
 		if (!\FileHealth\Presentation::allowed($this->request)) { throw new ApplicationException(_t('File health is available only to active administrators.')); }
 	}
+	public function Info($parameters=null) : string {
+		$this->authorize();
+		if (!$this->healthConfig->enabled()) { throw new ApplicationException(_t('File health is disabled.')); }
+		$this->view->setVar('health_request',$this->request);
+		return $this->render('sidebar_html.php',true);
+	}
 	public function Index() {
 		$this->authorize();
 		if (!$this->healthConfig->enabled()) { throw new ApplicationException(_t('File health is disabled.')); }

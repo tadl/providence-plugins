@@ -3,6 +3,7 @@
 A read-only Providence interface for **native `check-media-fixity` patrols and
 reports**. No preservation deposit, LOCKSS service, or other plugin is required.
 The optional dashboard widget shows recent patrols and links to their reports.
+The page's native sidebar links to patrol status, check history and the dashboard.
 
 The standalone CLI adapter runs the native command once, records its start,
 heartbeat, exit and report availability, and leaves email delivery to Providence.
