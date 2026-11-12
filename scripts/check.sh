@@ -32,6 +32,11 @@ php plugins/publicOai/tests/metadata_test.php
 php plugins/publicOai/tests/provider_test.php
 php plugins/publicOai/tests/provider_configuration_test.php
 php plugins/publicOai/tests/controller_test.php
+php plugins/fileHealth/tests/native_test.php
+php plugins/fileHealth/tests/store_test.php
+php plugins/fileHealth/tests/scheduler_test.php
+php plugins/fileHealth/tests/tool_test.php
+php plugins/fileHealth/tests/ui_test.php
 if [[ "${1:-}" == "--browser" ]]; then
     node plugins/collectionSibling/tests/browser_test.js
 fi

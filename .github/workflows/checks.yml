@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 15
     env:
       PROVIDENCE_REFERENCE_ROOT: ${{ github.workspace }}/.reference/providence
+      ZEND_REFERENCE_ROOT: ${{ github.workspace }}/.reference/zend/library
     steps:
       - name: Check out plugin source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,6 +37,7 @@ jobs:
             /app/lib/Configuration.php
             /app/lib/Controller/Request/RequestHTTP.php
             /app/lib/Controller/Response/ResponseHTTP.php
+            /app/lib/Utils/CLIUtils/Maintenance.php
             /app/lib/BaseModelWithAttributes.php
             /app/lib/LabelableBaseModelWithAttributes.php
             /app/lib/BundlableLabelableBaseModelWithAttributes.php
@@ -43,6 +45,18 @@ jobs:
             /app/lib/Export/BaseExportFormat.php
             /app/helpers/utilityHelpers.php
             /install/inc/schema_mysql.sql
+      - name: Check out native CLI option parser for fixity tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: magento/zf1
+          ref: 2381396d2a9a528be2f367b5ce2dddf650eac1d0 # 1.15.1, Providence's existing runtime dependency
+          path: .reference/zend
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /library/Zend/Console/Getopt.php
+            /library/Zend/Console/Getopt/Exception.php
+            /library/Zend/Exception.php
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: '24'
