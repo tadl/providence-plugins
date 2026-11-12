@@ -23,22 +23,30 @@ class HealthController extends ActionController {
 	public function Index() {
 		$this->authorize();
 		if (!$this->healthConfig->enabled()) { throw new ApplicationException(_t('File health is disabled.')); }
-		$offset = max(0,min(1000000,(int)$this->request->getParameter('offset',pInteger)));
-		$representation = max(0,(int)$this->request->getParameter('representation_id',pInteger));
-		$summary = null; $problems = []; $runs = []; $history = []; $issues = []; $error = null;
+		$summary = null; $runs = []; $error = null;
 		try {
 			$store = $this->store(); $summary = $store->summary();
-			$problems = $store->problems(50,$offset); $runs = $store->recentRuns(10);
-			if ($representation) { $history = $store->history($representation,50); $issues = $store->issueHistory($representation,50); }
+			$runs = $store->recentRuns(25);
 		} catch (Throwable $failure) {
-			$summary = null; $problems = []; $runs = []; $history = []; $issues = [];
-			$error = _t('File health results are unavailable. Ask an administrator to check the private health storage and worker configuration.');
+			$summary = null; $runs = [];
+			$error = _t('Patrol results are unavailable. Ask an administrator to check the private report directory and patrol configuration.');
 		}
-		$this->view->setVar('health_summary',$summary); $this->view->setVar('health_problems',$problems);
-		$this->view->setVar('health_runs',$runs); $this->view->setVar('health_history',$history);
-		$this->view->setVar('health_issues',$issues);
-		$this->view->setVar('health_representation_id',$representation); $this->view->setVar('health_offset',$offset);
+		$this->view->setVar('health_summary',$summary); $this->view->setVar('health_runs',$runs);
 		$this->view->setVar('health_error',$error); $this->view->setVar('health_request',$this->request);
 		$this->render('index_html.php');
+	}
+	public function Download() {
+		$this->authorize();
+		if (!$this->healthConfig->enabled()) { throw new ApplicationException(_t('File health is disabled.')); }
+		$id = (string)$this->request->getParameter('run_id',pString);
+		try {
+			if (!preg_match('/^(?:[a-f0-9]{32}|legacy-[a-f0-9]{64})$/D',$id)) { throw new RuntimeException('Invalid report identifier.'); }
+			$store = $this->store(); $path = $store->reportPath($id); $name = $store->reportDownloadName($id);
+			if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D',$name)) { throw new RuntimeException('Invalid download name.'); }
+		} catch (Throwable $failure) { throw new ApplicationException(_t('The requested native patrol report is unavailable.')); }
+		$this->view->setVar('archive_path',$path); $this->view->setVar('archive_name',$name);
+		// Providence's native binary view streams an attachment with private/no-store
+		// headers. Process logs are never a downloadable report type.
+		$this->view->render('bundles/download_file_binary.php');
 	}
 }

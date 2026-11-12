@@ -1,183 +1,125 @@
 <?php
-/** Execute the trusted native fixity method with synthetic catalogue/files only. */
+/** Real child-process patrols against a synthetic caUtils executable; no CA bootstrap. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
-error_reporting(E_ALL & ~E_DEPRECATED);
-define('__CA_URL_ROOT__','');
-$reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__,4).'/providence';
-$maintenance = $reference.'/app/lib/Utils/CLIUtils/Maintenance.php';
-if (!is_file($maintenance)) { throw new RuntimeException('A trusted Providence reference with Maintenance.php is required.'); }
-$zendRoots = array_filter([getenv('ZEND_REFERENCE_ROOT'),$reference.'/vendor/magento/zendframework1/library',
-	dirname(__DIR__,4).'/pawtucket2/vendor/magento/zendframework1/library']);
-$zend = null;
-foreach ($zendRoots as $candidate) { if (is_file($candidate.'/Zend/Console/Getopt.php')) { $zend = $candidate; break; } }
-if (!$zend) { throw new RuntimeException('Set ZEND_REFERENCE_ROOT to a trusted directory containing Zend/Console/Getopt.php.'); }
-require_once $zend.'/Zend/Exception.php';
-require_once $zend.'/Zend/Console/Getopt/Exception.php';
-require_once $zend.'/Zend/Console/Getopt.php';
-require_once $maintenance;
-
-// caGetOption specifically recognizes the real Zend options object. Reuse the
-// native helper without running setup.php or including private configuration.
-$helpers = file_get_contents($reference.'/app/helpers/utilityHelpers.php');
-if (!preg_match('/\tfunction caGetOption\(.*?(?=\n\t# -)/s',$helpers,$match)) { throw new RuntimeException('Native caGetOption helper not found.'); }
-eval($match[0]);
-function _t($text,...$args) { foreach ($args as $i => $value) { $text = str_replace('%'.($i+1),(string)$value,$text); } return $text; }
-class RequestHTTP {
-	public function __construct(...$args) {
-		$unused = $_SERVER['REQUEST_URI'].$_SERVER['QUERY_STRING'];
-		$GLOBALS['AUTH_CURRENT_USER_ID'] = null;
-		$_SERVER['SCRIPT_NAME'] = '/index.php'; $_SERVER['REQUEST_METHOD'] = 'GET'; $_REQUEST = [];
-	}
-}
-class CLIUtils {
-	use CLIUtilsMaintenance;
-	private static $errors = [];
-	public static function clearErrors() { self::$errors = []; }
-	public static function numErrors() { return count(self::$errors); }
-	public static function getErrors() { return self::$errors; }
-	public static function addError($message) { self::$errors[] = $message; print $message; }
-	public static function addMessage($message) { print $message; }
-}
-class NativeFixtureResult {
-	private $rows; private $position = -1;
-	private $skipPath;
-	public function __construct(array $rows,bool $skipPath=false) { $this->rows = $rows; $this->skipPath = $skipPath; }
-	public function nextRow() { return isset($this->rows[++$this->position]); }
-	public function numRows() { return count($this->rows); }
-	public function get($key) { return $this->rows[$this->position][$key] ?? null; }
-	public function getMediaVersions($field) { return array_keys(unserialize($this->get($field),['allowed_classes' => false])); }
-	public function getMediaPath($field,$version) { return $this->skipPath ? false : ($this->media($field)[$version]['test_path'] ?? null); }
-	public function getMediaInfo($field,$version,$property) { return $this->media($field)[$version][$property] ?? null; }
-	private function media($field) { return unserialize($this->get($field),['allowed_classes' => false]); }
-}
-class Db {
-	public static $pdo;
-	public static $nativeQueries = [];
-	public static $onNative;
-	public static $nativeMode;
-	public static $fail = false;
-	public function query($sql,...$params) {
-		if (self::$fail) { return false; }
-		if (count($params) === 1 && is_array($params[0])) { $params = $params[0]; }
-		if (strpos($sql,'SELECT o_r.representation_id') !== false) {
-			self::$nativeQueries[] = $params;
-			if (self::$onNative) { $hook = self::$onNative; self::$onNative = null; $hook(); }
-			if (self::$nativeMode === 'empty') { self::$nativeMode = null; return new NativeFixtureResult([]); }
-			if (self::$nativeMode === 'skip_path') {
-				self::$nativeMode = null; $s = self::$pdo->prepare($sql); $s->execute($params);
-				return new NativeFixtureResult($s->fetchAll(PDO::FETCH_ASSOC),true);
-			}
-		}
-		$s = self::$pdo->prepare($sql); $s->execute($params);
-		return new NativeFixtureResult($s->fetchAll(PDO::FETCH_ASSOC));
-	}
-	public function numErrors() { return self::$fail ? 1 : 0; }
-}
-class ca_object_representations {
-	private $row;
-	public function load($id) {
-		$q = Db::$pdo->prepare('SELECT * FROM ca_object_representations WHERE representation_id=? AND deleted=0'); $q->execute([$id]);
-		$this->row = $q->fetch(PDO::FETCH_ASSOC); return (bool)$this->row;
-	}
-	public function getPrimaryKey() { return $this->row['representation_id'] ?? null; }
-	public function get($key) { return $key === 'ca_objects.preferred_labels.name' ? 'Fictional archive' : ($this->row[$key] ?? 'SYNTHETIC'); }
-	public function getLabelForDisplay() { return '<b>Fictional representation</b>'; }
-	public function getMediaInfo($field,$version=null,$property=null) {
-		$media = unserialize($this->row['media'],['allowed_classes' => false]);
-		if ($version === null) { return $media; }
-		return $property === null ? ($media[$version] ?? null) : ($media[$version][$property] ?? null);
-	}
-	public function getMediaPath($field,$version) { return $this->getMediaInfo($field)[$version]['test_path'] ?? null; }
-}
-require_once __DIR__.'/../lib/NativeChecker.php';
-use FileHealth\Catalogue;
-use FileHealth\NativeChecker;
+require_once __DIR__.'/../lib/Patrol.php';
+use FileHealth\Config;
+use FileHealth\Patrol;
+use FileHealth\Store;
 
 $assertions = 0;
 function check($condition,string $message) : void { global $assertions; $assertions++; if (!$condition) { throw new RuntimeException($message); } }
-function fails(callable $call) : void { try { $call(); } catch (Throwable $e) { check(true,'Expected rejected input.'); return; } throw new RuntimeException('Expected rejected input.'); }
-function insert_rep(int $id,array $media,int $deleted=0) : void {
-	$q = Db::$pdo->prepare('INSERT OR REPLACE INTO ca_object_representations VALUES(?,?,?,?)'); $q->execute([$id,'SYNTHETIC-'.$id,serialize($media),$deleted]);
+function fails(callable $call) : void { try { $call(); } catch (Throwable $error) { check(true,'Expected rejection.'); return; } throw new RuntimeException('Expected rejection.'); }
+function remove_tree(string $path) : void {
+	if (is_dir($path) && !is_link($path)) { foreach (new FilesystemIterator($path) as $child) { remove_tree($child->getPathname()); } rmdir($path); }
+	elseif (file_exists($path) || is_link($path)) { unlink($path); }
 }
-function media(string $path,?string $md5=null) : array {
-	return ['ORIGINAL_FILENAME' => 'synthetic.pdf','INPUT' => ['MIMETYPE' => 'application/pdf'],
-		'original' => ['test_path' => $path,'MD5' => $md5 ?? md5_file($path),'FILENAME' => basename($path),'VOLUME' => 'synthetic']];
+function wait_for(callable $condition,float $seconds=5) {
+	$until = microtime(true)+$seconds;
+	do { $value = $condition(); if ($value) { return $value; } usleep(50000); } while (microtime(true)<$until);
+	throw new RuntimeException('Synthetic process condition did not occur.');
 }
-function status(NativeChecker $checker,int $id,string $expected,string $version='original') : array {
-	$result = $checker->check($id,$version);
-	check($result['status'] === $expected,'Expected '.$expected.' for '.$id.', got '.json_encode($result));
-	check(!isset($result['path'],$result['diagnostics'],$result['native_errors']),'Private paths and native diagnostics never escape the checker.');
-	check(is_string($result['fingerprint']) && preg_match('/^[a-f0-9]{64}$/D',$result['fingerprint']),'Every known identity has a generation fingerprint.');
-	return $result;
+function spawn_wrapper(string $application,string $state,string $mode,array $extra=[]) : array {
+	putenv('FILE_HEALTH_TEST_MODE='.$mode);
+	$process = proc_open(array_merge([PHP_BINARY,__DIR__.'/../support/run_native_patrol.php',
+		'--application-root='.$application,'--state-directory='.$state],$extra),[0 => ['file','/dev/null','r'],1 => ['pipe','w'],2 => ['pipe','w']],$pipes);
+	if (!is_resource($process)) { throw new RuntimeException('Cannot start synthetic wrapper.'); }
+	return [$process,$pipes];
+}
+function finish_wrapper($process,array $pipes) : array {
+	$state = wait_for(static function() use ($process) { $state = proc_get_status($process); return !$state['running'] ? $state : null; },12);
+	$output = stream_get_contents($pipes[1]); $error = stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
+	$closed = proc_close($process); return ['exit' => $state['exitcode'] >= 0 ? $state['exitcode'] : $closed,'output' => $output,'error' => $error];
 }
 
-$root = realpath(sys_get_temp_dir()).'/file-health-native-'.bin2hex(random_bytes(8)); mkdir($root,0700);
+$root = realpath(sys_get_temp_dir()).'/file-health-patrol-'.bin2hex(random_bytes(8)); mkdir($root,0700);
+$application = $root.'/Native Application'; mkdir($application.'/support/bin',0700,true);
+$stateRoot = $root.'/Private State'; mkdir($stateRoot,0700);
+$invocations = $root.'/invocations.jsonl'; $marker = $root.'/native-ready.json';
+putenv('FILE_HEALTH_TEST_INVOCATIONS='.$invocations); putenv('FILE_HEALTH_TEST_MARKER='.$marker);
+file_put_contents($application.'/setup.php',"<?php file_put_contents(__DIR__.'/unexpected-bootstrap','bootstrapped');\n");
+file_put_contents($application.'/support/bin/caUtils', <<<'PHP'
+<?php
+$options = [];
+foreach (array_slice($argv,2) as $option) { if (preg_match('/^--([^=]+)=(.*)$/sD',$option,$m)) { $options[$m[1]] = $m[2]; } }
+$descriptor = fopen('php://fd/3','r'); $lock = fstat($descriptor); $expected = stat(getcwd().'/patrol.lock'); fclose($descriptor);
+file_put_contents(getenv('FILE_HEALTH_TEST_INVOCATIONS'),json_encode(['argv' => $argv,'cwd' => getcwd(),
+    'application' => getenv('COLLECTIVEACCESS_HOME'),'lock_matches' => $lock['dev'] === $expected['dev'] && $lock['ino'] === $expected['ino']])."\n",FILE_APPEND);
+file_put_contents(getenv('FILE_HEALTH_TEST_MARKER'),json_encode(['pid' => getmypid()]));
+$mode = getenv('FILE_HEALTH_TEST_MODE');
+if ($mode === 'hold') { while (true) { usleep(100000); } }
+if ($mode === 'no_report') { exit(0); }
+if ($mode === 'crash') { fwrite(STDERR,'SYNTHETIC_PRIVATE_ERROR'); exit(7); }
+if ($mode === 'verbose') { for ($i=0;$i<400;$i++) { fwrite(STDOUT,str_repeat('SYNTHETIC_PRIVATE_OUTPUT ',300)); fwrite(STDERR,str_repeat('synthetic diagnostic ',300)); } }
+// Match the native command's lowercasing behavior without reading its report.
+file_put_contents(strtolower($options['file']),"Synthetic native report\n");
+exit($mode === 'attention' ? 1 : 0);
+PHP
+);
+$running = null; $runningPipes = []; $orphan = null;
 try {
-	Db::$pdo = new PDO('sqlite::memory:'); Db::$pdo->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
-	Db::$pdo->exec('CREATE TABLE ca_object_representations(representation_id INTEGER PRIMARY KEY,idno TEXT,media BLOB,deleted INTEGER)');
-	Db::$pdo->exec('CREATE TABLE ca_object_representation_multifiles(multifile_id INTEGER PRIMARY KEY,representation_id INTEGER)');
-	$path = $root.'/synthetic, original'."\n".'file.pdf'; file_put_contents($path,'original bytes');
-	$original = media($path); insert_rep(1,$original);
-	$catalogue = new Catalogue(); $checker = new NativeChecker($catalogue);
-	$GLOBALS['AUTH_CURRENT_USER_ID'] = 123; $_SERVER['SCRIPT_NAME'] = '/synthetic-cli'; $_REQUEST = ['synthetic' => 'request'];
-	$result = status($checker,1,'verified');
-	check($GLOBALS['AUTH_CURRENT_USER_ID'] === 123 && $_SERVER['SCRIPT_NAME'] === '/synthetic-cli' && $_REQUEST === ['synthetic' => 'request'],'Native RequestHTTP initialization cannot erase the authorized CLI user or request context.');
-	check($result['expected_md5'] === md5('original bytes') && $result['bytes'] === strlen('original bytes'),'Uses the native uploaded checksum and reports checked bytes.');
-	check(Db::$nativeQueries === [[1,1]],'Native command ran and bounded its real query to exactly one representation.');
-	check($catalogue->describe(1,'original')['label'] === 'Fictional representation','Native labels are plain text at the boundary.');
-	file_put_contents($path,'corrupted bytes'); $mismatch = status($checker,1,'mismatch');
-	check($mismatch['reason'] === 'checksum_mismatch' && $mismatch['expected_md5'] === $result['expected_md5'],'Mismatch never changes the expected baseline.');
-	check($mismatch['fingerprint'] === $result['fingerprint'],'Content corruption retains the same expected generation.');
-	check(CLIUtils::numErrors() === 0,'Native static errors are scoped to the isolated check.');
-	Db::$nativeMode = 'empty'; status($checker,1,'mismatch');
-	check(CLIUtils::numErrors() === 0,'A zero-row native success cannot hide corruption.');
-	Db::$nativeMode = 'skip_path'; status($checker,1,'mismatch');
-	check(CLIUtils::numErrors() === 0,'A silent native path skip cannot hide corruption.');
-	file_put_contents($path,'original bytes'); status($checker,1,'verified');
-	unlink($path); status($checker,1,'missing'); file_put_contents($path,'original bytes');
-	$noBaseline = $original; unset($noBaseline['original']['MD5']); insert_rep(2,$noBaseline);
-	$queries = count(Db::$nativeQueries); $unverified = status($checker,2,'unverified');
-	check($unverified['reason'] === 'baseline_unavailable' && count(Db::$nativeQueries) === $queries,'No-baseline native skips cannot report verified.');
-	status($checker,999,'unverified');
-	foreach (['SKIP' => 'version_substituted','EXTERNAL_URL' => 'externally_hosted','QUEUED' => 'processing_pending','USE_ICON' => 'icon_only','PAGES' => 'multipage_version_unsupported'] as $flag => $reason) {
-		$unsupported = $original; $unsupported['original'][$flag] = $flag === 'PAGES' ? 2 : 1; insert_rep(3,$unsupported);
-		check(status($checker,3,'unverified')['reason'] === $reason,'Unsupported version is explicitly excluded: '.$flag);
+	$config = new Config(['enable' => 1,'state_directory' => $stateRoot,'email' => 'archivist@example.org','php_binary' => PHP_BINARY]);
+	$store = new Store($config,true); $patrol = new Patrol($config,$store,$application);
+	putenv('FILE_HEALTH_TEST_MODE=normal');
+	$first = $patrol->run();
+	check($first['status'] === 'no_errors_reported' && $first['exit_code'] === 0 && $first['report_available'],'Successful native execution is journaled without claiming every file was verified.');
+	$lines = file($invocations,FILE_IGNORE_NEW_LINES); $call = json_decode($lines[0],true,512,JSON_THROW_ON_ERROR);
+	check(count($lines) === 1 && $call['argv'][1] === 'check-media-fixity','Patrol invokes the native command exactly once.');
+	check($call['application'] === $application && $call['cwd'] === $stateRoot,'Native child receives the intended installation and private working directory.');
+	check($call['lock_matches'],'The native child inherits the exact common patrol.lock inode.');
+	check(in_array('--email=archivist@example.org',$call['argv'],true),'Native email is forwarded unchanged.');
+	check(in_array('--kinds=ca_object_representations',$call['argv'],true) && in_array('--versions=original',$call['argv'],true),'Default patrol scope matches the existing representations/original patrol.');
+	check(in_array('--file=reports/'.$first['id'].'.txt',$call['argv'],true),'Lowercase relative output works with mixed-case private/installation paths.');
+	check(!file_exists($application.'/unexpected-bootstrap'),'The wrapper never bootstraps application setup itself.');
+	check((fileperms($store->reportFile($first['id'])) & 0777) === 0600 && (fileperms($store->logFile($first['id'])) & 0777) === 0600,'Artifacts remain private.');
+	putenv('FILE_HEALTH_TEST_MODE=attention'); $attention = $patrol->run();
+	check($attention['status'] === 'attention' && $attention['exit_code'] === 1 && $attention['report_available'],'Native nonzero exit with report is attention, including findings or email/runtime errors.');
+	putenv('FILE_HEALTH_TEST_MODE=no_report'); $missing = $patrol->run();
+	check($missing['status'] === 'failed' && $missing['reason'] === 'report_missing' && !$missing['report_available'],'A precreated empty report is never a completed patrol.');
+	putenv('FILE_HEALTH_TEST_MODE=crash'); $crashed = $patrol->run();
+	check($crashed['status'] === 'failed' && $crashed['exit_code'] === 7 && !$crashed['report_available'],'Native failure without report is retained as failed.');
+	putenv('FILE_HEALTH_TEST_MODE=verbose'); $verbose = $patrol->run();
+	check($verbose['status'] === 'no_errors_reported','Large stdout and stderr are drained without deadlocking the native process.');
+	check(filesize($store->logFile($verbose['id'])) <= Patrol::MAX_LOG_BYTES && strpos(file_get_contents($store->logFile($verbose['id'])),'size limit reached') !== false,'Private diagnostics are bounded and explicitly truncated.');
+	check(strpos(json_encode($verbose),'SYNTHETIC_PRIVATE') === false,'Journal/UI results never contain raw native diagnostic output.');
+	$allConfig = new Config(['enable' => 1,'state_directory' => $stateRoot,'kinds' => 'all','versions' => '']);
+	putenv('FILE_HEALTH_TEST_MODE=normal'); (new Patrol($allConfig,new Store($allConfig),$application))->run();
+	$lines = file($invocations,FILE_IGNORE_NEW_LINES); $last = json_decode(end($lines),true,512,JSON_THROW_ON_ERROR);
+	check(in_array('--kinds=all',$last['argv'],true) && !preg_grep('/^--versions=/',$last['argv']) && !preg_grep('/^--email=/',$last['argv']),'All-kind/all-version scope and disabled email are passed without default narrowing.');
+	$lock = $store->lock(); $count = count($lines);
+	try { fails(static function() use ($patrol) { $patrol->run(); }); } finally { Store::unlock($lock); }
+	check(count(file($invocations)) === $count,'A busy common lock does not launch another patrol.');
+	foreach ([SIGTERM,SIGINT] as $number) {
+		if (is_file($marker)) { unlink($marker); }
+		[$running,$runningPipes] = spawn_wrapper($application,$stateRoot,'hold');
+		$native = wait_for(static function() use ($marker) { return is_file($marker) ? json_decode(file_get_contents($marker),true) : null; });
+		if ($number === SIGTERM) {
+			$before = $store->summary()['active_run'];
+			wait_for(static function() use ($store,$before) { $active = $store->summary()['active_run']; return $active && $active['heartbeat_at'] !== $before['heartbeat_at']; },7);
+			check(true,'A silent long-running native patrol receives timer-driven heartbeats.');
+		}
+		proc_terminate($running,$number); $ended = finish_wrapper($running,$runningPipes); $running = null; $runningPipes = [];
+		$result = json_decode($ended['output'],true,512,JSON_THROW_ON_ERROR);
+		check($result['status'] === 'interrupted' && $ended['exit'] === 128+$number,'Termination is forwarded and journaled as interrupted.');
+		check(!posix_kill($native['pid'],0),'The interrupted native process was terminated and reaped before final journaling.');
 	}
-	insert_rep(3,$original); status($checker,3,'unverified','nonexistent');
-	$badPath = $original; $badPath['original']['test_path'] = 'https://example.org/file.pdf'; insert_rep(4,$badPath); status($checker,4,'unverified');
-	$badPath['original']['test_path'] = $root; insert_rep(4,$badPath); status($checker,4,'unverified');
-	$empty = $root.'/empty.pdf'; file_put_contents($empty,''); insert_rep(5,media($empty)); status($checker,5,'verified');
-	$other = $root.'/other.pdf'; file_put_contents($other,'wrong derivative');
-	$derivatives = $original; $derivatives['thumbnail'] = ['test_path' => $other,'MD5' => md5('expected derivative'),'VOLUME' => 'synthetic']; insert_rep(6,$derivatives);
-	status($checker,6,'verified'); status($checker,6,'mismatch','thumbnail');
-	Db::$pdo->exec('INSERT INTO ca_object_representation_multifiles VALUES(1,6)');
-	check(status($checker,6,'verified')['multifile_count'] === 1,'Original can verify while separate multifile coverage is explicitly counted as excluded.');
-	Db::$onNative = static function() use ($original) { $changed = $original; $changed['original']['MD5'] = md5('changed baseline'); insert_rep(1,$changed); };
-	status($checker,1,'changed'); insert_rep(1,$original);
-	Db::$onNative = static function() use ($path) { rename($path,$path.'.old'); file_put_contents($path,'original bytes'); };
-	status($checker,1,'changed'); unlink($path.'.old');
-	Db::$onNative = static function() use ($path) { unlink($path); };
-	status($checker,1,'error'); file_put_contents($path,'original bytes');
-	Db::$onNative = static function() { Db::$pdo->exec('DELETE FROM ca_object_representations WHERE representation_id=1'); };
-	status($checker,1,'changed'); insert_rep(1,$original);
-	$replacement = media($path,md5('replacement bytes')); insert_rep(1,$replacement);
-	check(status($checker,1,'mismatch')['fingerprint'] !== $result['fingerprint'],'Native baseline replacement creates another generation without resolving previous evidence.');
-	insert_rep(10,$original,1);
-	check($catalogue->maxId() === 6 && $catalogue->batch(0,2) === [1,2] && $catalogue->batch(2,100,5) === [3,4,5],'Bounded keyset inventory excludes deleted rows and honors the captured maximum.');
-	fails(static function() use ($catalogue) { $catalogue->batch(0,0); });
-	fails(static function() use ($catalogue) { $catalogue->batch(0,1001); });
-	fails(static function() use ($catalogue) { $catalogue->describe(1,'original,thumbnail'); });
-	$bad = $checker->check(1,'original,thumbnail'); check($bad['status'] === 'error','Malformed native flags are rejected before running default scope.');
-	$first = $catalogue->describe(1,'original'); $reordered = $first; $reordered['descriptor'] = array_reverse($first['descriptor'],true);
-	check(NativeChecker::fingerprint($first) === NativeChecker::fingerprint($reordered),'Fingerprint canonicalization is stable for descriptor map order.');
-	$reprocessed = $first; $reprocessed['descriptor']['entry']['FILE_LAST_MODIFIED'] = 123456789;
-	check(NativeChecker::fingerprint($first) === NativeChecker::fingerprint($reprocessed),'Processing metadata does not create a different file generation.');
-	chmod($path,0000); clearstatcache(true,$path);
-	if (!is_readable($path)) { status($checker,1,'unreadable'); }
-	chmod($path,0600);
-	Db::$fail = true; $failed = $checker->check(1); check($failed['status'] === 'error' && $failed['reason'] === 'check_failed','Database failure cannot become a clean result.'); Db::$fail = false;
-	print 'File health native integration: '.$assertions." assertions passed.\n";
+	if (is_file($marker)) { unlink($marker); }
+	[$running,$runningPipes] = spawn_wrapper($application,$stateRoot,'hold');
+	$native = wait_for(static function() use ($marker) { return is_file($marker) ? json_decode(file_get_contents($marker),true) : null; }); $orphan = $native['pid'];
+	proc_terminate($running,SIGKILL); finish_wrapper($running,$runningPipes); $running = null; $runningPipes = [];
+	$common = fopen($stateRoot.'/patrol.lock','c');
+	check(!flock($common,LOCK_EX|LOCK_NB),'The native child retains the common lock even after abrupt wrapper death.'); fclose($common);
+	posix_kill($orphan,SIGTERM);
+	wait_for(static function() use ($stateRoot) { $lock = fopen($stateRoot.'/patrol.lock','c'); $free = flock($lock,LOCK_EX|LOCK_NB); if ($free) { flock($lock,LOCK_UN); } fclose($lock); return $free; }); $orphan = null;
+	check(true,'The inherited lock releases when the surviving native process exits.');
+	[$running,$runningPipes] = spawn_wrapper($application,$stateRoot,'normal',['--unexpected=value']);
+	$bad = finish_wrapper($running,$runningPipes); $running = null; $runningPipes = [];
+	check($bad['exit'] === 2 && strpos($bad['error'],'SYNTHETIC_PRIVATE') === false,'Unknown wrapper flags fail without exposing private diagnostics.');
+	$badConfig = new Config(['enable' => 1,'state_directory' => $stateRoot,'email' => "bad@example.org\nInjected"]);
+	fails(static function() use ($badConfig,$application) { (new Patrol($badConfig,new Store($badConfig),$application))->run(); });
+	print 'File health native patrol runner: '.$assertions." assertions passed.\n";
 } finally {
-	foreach (glob($root.'/*') ?: [] as $file) { if (is_file($file)) { chmod($file,0600); unlink($file); } }
-	rmdir($root);
+	if (is_resource($running)) { proc_terminate($running,SIGKILL); foreach ($runningPipes as $pipe) { if (is_resource($pipe)) { fclose($pipe); } } proc_close($running); }
+	if ($orphan) { posix_kill($orphan,SIGKILL); }
+	foreach (['FILE_HEALTH_TEST_MODE','FILE_HEALTH_TEST_INVOCATIONS','FILE_HEALTH_TEST_MARKER'] as $key) { putenv($key); }
+	remove_tree($root);
 }

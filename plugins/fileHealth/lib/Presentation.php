@@ -16,43 +16,22 @@ final class Presentation {
 	}
 	public static function status($value) : string {
 		$labels = [
-			'verified' => 'Verified',
-			'mismatch' => 'Checksum mismatch','missing' => 'Missing file','unreadable' => 'Unreadable file',
-			'changed' => 'Changed during check','unverified' => 'Not verified','error' => 'Check failed',
-			'running' => 'Running','completed' => 'Completed','failed' => 'Failed','superseded' => 'Superseded',
+			'running' => 'Running','no_errors_reported' => 'No errors reported','attention' => 'Needs attention',
+			'failed' => 'Failed','interrupted' => 'Interrupted','untracked' => 'Untracked report',
 		];
 		return $labels[(string)$value] ?? 'Needs review';
-	}
-	public static function reason($value) : string {
-		$labels = [
-			'check_failed' => 'The check could not finish. Review the worker configuration.',
-			'native_check_failed' => 'Providence could not complete its integrity check.',
-			'confirmation_read_failed' => 'The confirming file read could not finish. Check the file again.',
-			'file_missing' => 'The recorded local file could not be found.',
-			'file_unreadable' => 'The worker could not read the recorded local file.',
-			'not_regular_file' => 'The recorded path does not identify a regular file.',
-			'changed_during_check' => 'The file or its catalogue description changed during the check. Check again.',
-			'checksum_mismatch' => 'The file differs from its recorded Providence checksum.',
-			'checksum_matches' => 'The file matches its recorded Providence checksum.',
-			'representation_unavailable' => 'The representation is unavailable to the worker.',
-			'version_unavailable' => 'This media version is not recorded.',
-			'version_substituted' => 'Providence substitutes another version for this media version.',
-			'icon_only' => 'This media version uses an icon instead of a stored file.',
-			'externally_hosted' => 'This media version is hosted externally.',
-			'processing_pending' => 'Media processing is still pending.',
-			'multipage_version_unsupported' => 'This multipage media version is outside the checker scope.',
-			'baseline_unavailable' => 'No trusted Providence checksum is recorded for this version.',
-			'local_path_unavailable' => 'No local file is recorded for this version.',
-		];
-		return $labels[(string)$value] ?? 'Review this finding with an administrator.';
-	}
-	public static function checksum($value) : string {
-		return is_string($value) && preg_match('/^[a-f0-9]{32}$/Di',$value) ? strtolower($value) : 'Not recorded';
 	}
 	public static function timestamp($value) : string {
 		if (!is_string($value) || $value === '') { return 'Never'; }
 		try { return (new \DateTimeImmutable($value))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s').' UTC'; }
 		catch (\Throwable $error) { return 'Unknown'; }
+	}
+	public static function scope($scope) : string {
+		if (!is_array($scope) || empty($scope['kinds']) || !is_array($scope['kinds']) || !isset($scope['versions']) || !is_array($scope['versions'])) { return 'Scope was not recorded'; }
+		foreach (array_merge($scope['kinds'],$scope['versions']) as $value) { if (!is_string($value)) { return 'Scope was not recorded'; } }
+		$labels = ['ca_object_representations' => 'representation media','ca_attributes' => 'metadata file/media attributes','all' => 'all native media kinds'];
+		$kinds = array_map(static function($kind) use ($labels) { return $labels[(string)$kind] ?? 'other configured native media'; },$scope['kinds']);
+		return implode(', ',$kinds).'; versions: '.($scope['versions'] ? implode(', ',$scope['versions']) : 'all native media versions');
 	}
 	public static function integer($value) : string { return number_format(max(0,(int)$value)); }
 }

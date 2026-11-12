@@ -8,7 +8,7 @@ Source repository: [tadl/providence-plugins](https://github.com/tadl/providence-
 
 | Plugin | Purpose |
 | --- | --- |
-| [fileHealth](plugins/fileHealth/README.md) | Scheduled native media fixity checks, private issue/check history and a companion dashboard widget; independent of preservation |
+| [fileHealth](plugins/fileHealth/README.md) | Native fixity patrol status/report history and a companion dashboard widget; independent of preservation |
 | [MDPNLOCKSSPreservation](plugins/MDPNLOCKSSPreservation/README.md) | Pilot collection preservation: BagIt full/supplemental deposits, private history, SFTP staging and offline recovery |
 | [collectionSibling](plugins/collectionSibling/README.md) | Add a sibling object directly in the same hierarchy collection |
 | [groupCollectionRootMap](plugins/groupCollectionRootMap/README.md) | Scope collections/objects to assigned roots, with optional native ACL search/browse segmentation |
@@ -56,12 +56,11 @@ eligibility and both XML formats with synthetic data and offline schemas. They
 do not bootstrap a live catalogue or require a patched OAI core. See its README
 for deployment and harvester acceptance requirements.
 
-File Health checks execute the native 2.0.10 fixity implementation with synthetic
-records/files and private SQLite state, plus read-only interface tests. Its native
-suite also needs Providence's existing Zend CLI parser; the sibling workspace
-vendor tree is detected automatically, or set `ZEND_REFERENCE_ROOT` to a trusted
-directory containing `Zend/`. CI checks out the pinned parser source separately.
-See its README for representation-only coverage and authorized staging acceptance.
+File Health checks exercise a thin native-command adapter using synthetic
+subprocesses and private run/report fixtures, plus read-only interface tests.
+PHP CLI with `pcntl` is required for its interrupted-run checks. The plugin
+records native patrol outcomes and existing reports; it has no separate scanner
+or per-file checksum ledger. See its README for scope and deployment boundaries.
 
 GitHub Actions runs these checks, including browser interactions, on pushes and
 pull requests against a pinned Providence 2.0.10 reference. The workflow only

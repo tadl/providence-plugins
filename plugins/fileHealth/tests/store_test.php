@@ -1,153 +1,192 @@
 <?php
-/** Synthetic ledger and configuration checks. No Providence bootstrap or network. */
+/** Native run journals and existing reports, with synthetic private files only. */
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__.'/../lib/Store.php';
 use FileHealth\Config;
 use FileHealth\Store;
 
-$checks = 0;
-function verifyStore($condition, string $message) : void {
+$checks=0;
+function verifyStore($condition,string $message) : void {
 	global $checks;
 	if (!$condition) { throw new RuntimeException($message); }
 	$checks++;
 }
-function failsStore(callable $operation, string $message) : void {
+function failsStore(callable $operation,string $message) : void {
 	try { $operation(); } catch (Throwable $error) { verifyStore(true,$message); return; }
 	throw new RuntimeException($message);
 }
-function fileResult(int $id, string $version, string $status, string $identity='a', string $checksum='a') : array {
-	return ['representation_id' => $id,'version' => $version,'status' => $status,'reason' => $status,
-		'fingerprint' => str_repeat($identity,64),'expected_md5' => str_repeat($checksum,32),'bytes' => 3,
-		'label' => 'Synthetic representation','idno' => 'EXAMPLE-001'];
+function privateReport(string $path,string $text="Type,Error,Name,ID,Version,File path,Expected MD5,Actual MD5\n") : void {
+	file_put_contents($path,$text); chmod($path,0600); clearstatcache(true,$path);
 }
-function removeStoreFixture(string $directory) : void {
+function fixtureEntries(string $directory) : array {
+	$entries=[];
 	foreach (scandir($directory) ?: [] as $name) {
-		if ($name === '.' || $name === '..') { continue; }
-		$path = $directory.'/'.$name;
-		if (is_dir($path) && !is_link($path)) { removeStoreFixture($path); } else { unlink($path); }
+		if ($name==='.' || $name==='..') { continue; }
+		$path=$directory.'/'.$name;
+		$entries[$name]=is_dir($path) && !is_link($path) ? fixtureEntries($path) : (is_link($path) ? ['link'=>readlink($path)] : hash_file('sha256',$path));
+	}
+	return $entries;
+}
+function removeFixture(string $directory) : void {
+	foreach (scandir($directory) ?: [] as $name) {
+		if ($name==='.' || $name==='..') { continue; }
+		$path=$directory.'/'.$name;
+		if (is_dir($path) && !is_link($path)) { removeFixture($path); } else { unlink($path); }
 	}
 	rmdir($directory);
 }
 
-$directory = realpath(sys_get_temp_dir()).'/file-health-store-'.bin2hex(random_bytes(8));
+$directory=realpath(sys_get_temp_dir()).'/file-health-reports-'.bin2hex(random_bytes(8));
 mkdir($directory,0700);
-$values = ['enable' => 1,'state_directory' => $directory,'versions' => 'original','check_interval_seconds' => 60,'worker_stale_seconds' => 60];
+$values=['enable'=>1,'state_directory'=>$directory,'kinds'=>'ca_object_representations','versions'=>'original',
+	'patrol_interval_seconds'=>60,'overdue_grace_seconds'=>0,'worker_stale_seconds'=>10];
+$config=new Config($values);
 try {
-	$config = new Config($values);
-	failsStore(static function() use ($config) { new Store($config,false,true); },'Read-only opening cannot initialize missing storage');
-	verifyStore(scandir($directory) === ['.','..'],'A missing read-only ledger produces no files');
+	failsStore(static function() use ($config) { new Store($config,false,true); },'A missing report directory cannot be initialized by a read');
+	verifyStore(scandir($directory)===['.','..'],'A failed read-only opening creates no state');
 	failsStore(static function() use ($config) { new Store($config,true,true); },'Read-only initialization is refused');
-	$store = new Store($config,true);
-	verifyStore((fileperms($directory.'/health.sqlite') & 0777) === 0600,'The ledger is created private');
-	$summary = $store->summary();
-	verifyStore($summary['total_targets'] === 0 && $summary['worker_stale'] && $summary['sweep_overdue'],'Uninitialized monitoring never reports a current sweep or worker');
-	$lock = $store->lock();
-	failsStore(static function() use ($config) { (new Store($config))->lock(); },'A competing worker is rejected');
+	$store=new Store($config,true);
+	foreach (['runs','reports','logs'] as $name) {
+		verifyStore(is_dir($directory.'/'.$name) && (fileperms($directory.'/'.$name)&0777)===0700,'Native artifacts use private directories');
+	}
+	verifyStore(!file_exists($directory.'/health.sqlite'),'The report journal creates no independent checksum database');
+	verifyStore($store->recentRuns()===[] && $store->summary()['overdue'] && $store->summary()['last_completed_at']===null,'An empty journal cannot imply a completed patrol');
+	$legacy=$directory.'/reports/native-2026-01-01.txt';
+	privateReport($legacy); touch($legacy,time()-3600); clearstatcache(true,$legacy);
+	$legacyId='legacy-'.hash('sha256',basename($legacy));
+	$imported=$store->recentRuns()[0];
+	verifyStore($imported['id']===$legacyId && $imported['status']==='untracked' && $imported['scope']===null
+		&& $imported['exit_code']===null && $imported['started_at']===null && $imported['finished_at']===null,
+		'A preexisting header-only report has unknown scope and execution outcome');
+	verifyStore($imported['report_available'] && $imported['report_at']!==null && $store->summary()['untracked_reports']===1,
+		'Legacy report availability and file time are visible without inventing a run');
+	verifyStore($store->summary()['last_completed_at']===null && $store->summary()['overdue'],'A recent legacy report cannot prove current native patrol completion');
+	verifyStore($store->reportPath($legacyId)===$legacy && $store->reportDownloadName($legacyId)==='native-fixity-'.$legacyId.'.txt',
+		'Imported reports are retrieved through a generated ID and safe download name');
+	$before=fixtureEntries($directory);
+	$reader=new Store($config,false,true); $reader->summary(); $reader->recentRuns(); $reader->reportPath($legacyId);
+	verifyStore(fixtureEntries($directory)===$before,'Reading old reports does not modify or import their bytes into another store');
+	foreach (['../native-2026-01-01.txt','../../outside','/etc/passwd','legacy-invalid',str_repeat('A',32),'legacy-'.str_repeat('0',64),str_repeat('a',32)] as $id) {
+		failsStore(static function() use ($reader,$id) { $reader->reportPath($id); },'Report lookup rejects raw paths, malformed IDs and unknown reports');
+	}
+	$outside=$directory.'/outside.txt'; privateReport($outside,'Synthetic material outside the report directory.');
+	symlink($outside,$directory.'/reports/linked.txt');
+	$linkedId='legacy-'.hash('sha256','linked.txt');
+	verifyStore(count($reader->recentRuns())===1,'A symlink cannot be imported as a native report');
+	failsStore(static function() use ($reader,$linkedId) { $reader->reportPath($linkedId); },'A symlink cannot escape report retrieval');
+	unlink($directory.'/reports/linked.txt');
+	if (function_exists('posix_mkfifo')) {
+		posix_mkfifo($directory.'/reports/pipe.txt',0600);
+		verifyStore(count($reader->recentRuns())===1,'Nonregular report paths are ignored without opening a FIFO');
+		failsStore(static function() use ($reader) { $reader->reportPath('legacy-'.hash('sha256','pipe.txt')); },'A FIFO cannot be downloaded as a report');
+		unlink($directory.'/reports/pipe.txt');
+	}
+	verifyStore($reader->summary()['untracked_active']===false,'A free native patrol lock does not invent an active direct command');
+	$external=fopen($directory.'/patrol.lock','c');
+	if (!$external || !flock($external,LOCK_EX|LOCK_NB)) { throw new RuntimeException('Cannot acquire the synthetic direct-native lock.'); }
+	$direct=$reader->summary();
+	verifyStore($direct['untracked_active']===true && $direct['active_run']===null && $direct['last_completed_at']===null,
+		'A direct native cron holding the shared lock is visible without inventing run metadata or completion');
+	verifyStore(count($reader->recentRuns())===1,'Observing a direct native command creates no journal record');
+	flock($external,LOCK_UN); fclose($external);
+	verifyStore($reader->summary()['untracked_active']===false,'The direct native activity indication clears when its shared lock is free');
+	$lock=$store->lock();
+	verifyStore(is_file($directory.'/patrol.lock'),'The wrapper uses the existing native patrol lock name');
+	failsStore(static function() use ($config) { (new Store($config))->lock(); },'A competing wrapper is excluded by the same patrol lock');
+	$id=str_repeat('a',32); $run=$store->startRun($id,true);
+	verifyStore($run['status']==='running' && $run['email_requested']===true && $run['scope']===$config->scope()
+		&& $run['exit_code']===null && $run['finished_at']===null,'A tracked invocation begins with requested scope and no completion claim');
+	verifyStore((fileperms($directory.'/runs/'.$id.'.json')&0777)===0600,'Run journals are private atomic JSON artifacts');
+	$store->heartbeat($id,12345);
+	$active=(new Store($config,false,true))->summary();
+	verifyStore($active['active_run']['id']===$id && $active['active_run']['status']==='running','A read-only observer sees a live patrol while its lock is held');
+	verifyStore($active['untracked_active']===false,'A tracked running wrapper is not also counted as an untracked direct command');
+	verifyStore($reader->summary(time()+20)['worker_stale'],'A held but silent stale journal is flagged independently of completion');
+	verifyStore($reader->summary()['last_completed_at']===null,'A started run cannot become the last completed patrol');
+	failsStore(static function() use ($store,$id) { $store->finishRun($id,'no_errors_reported',0,'native_completed',true); },'Exit zero without an available report cannot be recorded as completed');
+	privateReport($store->reportFile($id));
+	failsStore(static function() use ($store,$id) { $store->finishRun($id,'no_errors_reported',255,'native_completed',true); },'A nonzero exit cannot be recorded as native success');
+	$finished=$store->finishRun($id,'no_errors_reported',0,'native_completed',true);
+	verifyStore($finished['status']==='no_errors_reported' && $finished['exit_code']===0 && $finished['finished_at']!==null,
+		'Only observed exit zero and an existing report support no-errors-reported status');
+	failsStore(static function() use ($store,$id) { $store->finishRun($id,'failed',1,'runner_failed',true); },'A completed invocation cannot be silently rewritten');
+	verifyStore($reader->summary()['last_completed_run']['id']===$id && !$reader->summary()['overdue'],
+		'A completed invocation supplies schedule freshness without asserting per-file health');
+	verifyStore($reader->reportPath($id)===$store->reportFile($id),'A tracked native report has strict ID-based retrieval');
+	verifyStore(count($reader->recentRuns())===2,'A tracked report is not duplicated as a legacy import');
+	foreach ($reader->recentRuns() as $row) {
+		verifyStore(!array_key_exists('_sort',$row) && !array_key_exists('format',$row) && !array_key_exists('process_id',$row),'Public history omits runner bookkeeping fields');
+	}
+	foreach (['latest_run','last_completed_run','active_run'] as $field) {
+		$row=$reader->summary()[$field];
+		verifyStore($row===null || (!array_key_exists('_sort',$row) && !array_key_exists('format',$row) && !array_key_exists('process_id',$row)),
+			'Public summary rows omit runner bookkeeping fields');
+	}
+	failsStore(static function() use ($store,$id) { $store->startRun($id,false); },'Journal IDs and native report names cannot be reused');
+	$secondId=str_repeat('b',32); $store->startRun($secondId,false);
+	failsStore(static function() use ($store,$secondId) { $store->finishRun($secondId,'attention',null,'native_exit_nonzero',false); },'Unobserved native execution cannot be recorded as completed with attention');
+	privateReport($store->reportFile($secondId),'[Object representation][MD5 mismatch] Synthetic representation; representation_id=1'."\n");
+	failsStore(static function() use ($store,$secondId) { $store->finishRun($secondId,'attention',0,'native_exit_nonzero',true); },'Native exit zero cannot be recategorized as a nonzero native outcome');
+	$attention=$store->finishRun($secondId,'attention',255,'native_exit_nonzero',true);
+	verifyStore($attention['status']==='attention' && $attention['exit_code']===255 && $reader->summary()['last_completed_run']['id']===$secondId,
+		'Native findings or errors remain distinct from no-errors-reported completion');
+	$thirdId=str_repeat('c',32); $store->startRun($thirdId,false);
+	$store->finishRun($thirdId,'failed',null,'runner_failed',false);
+	verifyStore($reader->summary()['latest_run']['status']==='failed' && $reader->summary()['last_completed_run']['id']===$secondId,
+		'A wrapper failure remains visible without inventing a new completed native check');
+	$unresolvedId=str_repeat('d',32); $store->startRun($unresolvedId,false); $store->heartbeat($unresolvedId,12345);
 	Store::unlock($lock);
-	$lock = $store->lock(); Store::unlock($lock);
-	verifyStore(true,'Releasing a lock permits a later invocation');
-	$run = $store->startRun(5,['original'],42);
-	verifyStore($run['cursor'] === 0 && $run['max_id'] === 5 && $run['user_id'] === 42,'A sweep records its bounded inventory and operator');
-	failsStore(static function() use ($store) { $store->startRun(5,['original'],42); },'Only one sweep may be active');
-	$store->record($run['id'],1,[fileResult(1,'original','mismatch')]);
-	$active = $store->activeRun();
-	verifyStore($active['cursor'] === 1 && $active['checked'] === 1 && $active['problems'] === 1,'A check event and checkpoint advance together');
-	verifyStore($store->summary()['unresolved_issues'] === 1 && $store->problems()[0]['expected_md5'] === str_repeat('a',32),'A mismatch retains its expected upload checksum');
-	failsStore(static function() use ($store,$run) { $store->record($run['id'],1,[fileResult(1,'original','verified')]); },'A committed representation cannot be silently overwritten');
-	failsStore(static function() use ($store,$run) { $store->record($run['id'],6,[fileResult(6,'original','verified')]); },'A record outside the sweep bound is rejected');
-	failsStore(static function() use ($store,$run) { $store->record($run['id'],2,[fileResult(2,'original','unknown')]); },'Unknown check outcomes are rejected');
-	verifyStore($store->activeRun()['cursor'] === 1 && $store->history(2) === [],'Rejected outcomes leave no event or cursor advancement');
-	$store->endRun($run['id'],'completed');
-	$second = $store->startRun(5,['original'],42);
-	$store->record($second['id'],1,[fileResult(1,'original','verified')]);
-	verifyStore($store->summary()['unresolved_issues'] === 0 && count($store->history(1)) === 2,'Reverification of the same file identity resolves the issue without removing history');
-	$store->endRun($second['id'],'completed');
-	$third = $store->startRun(5,['original'],42);
-	$store->record($third['id'],1,[fileResult(1,'original','missing')]);
-	verifyStore($store->summary()['unresolved_issues'] === 1,'A recurring problem reopens its existing identity issue');
-	$store->endRun($third['id'],'completed');
-	$replacement = $store->startRun(5,['original'],42);
-	$store->record($replacement['id'],1,[fileResult(1,'original','verified','b','b')]);
-	verifyStore($store->summary()['counts']['verified'] === 1 && $store->summary()['unresolved_issues'] === 1,'A newly uploaded identity cannot resolve an older damaged version');
-	verifyStore($store->problems()[0]['expected_md5'] === str_repeat('a',32),'An old failure still offers the original expected checksum after replacement');
-	$store->endRun($replacement['id'],'completed');
-	$issueId = (int)$store->problems()[0]['issue_id'];
-	verifyStore($store->issue($issueId)['fingerprint'] === str_repeat('a',64),'An issue lookup retains the failed generation rather than the replacement baseline');
-	failsStore(static function() use ($store) { $store->issue(999999); },'Unknown issues fail closed');
-	failsStore(static function() use ($store,$issueId) { $store->reviewIssue($issueId,42,' '); },'Issue review requires a substantive note');
-	failsStore(static function() use ($store,$issueId) { $store->reviewIssue($issueId,0,'Synthetic review'); },'Issue review requires a backend operator identity');
-	$db = new PDO('sqlite:'.$directory.'/health.sqlite');
-	$current = $store->history(1)[0];
-	$db->prepare('UPDATE checks SET checked_at=? WHERE id=?')->execute([gmdate('c',time()-120),$current['id']]);
-	failsStore(static function() use ($store,$issueId) { $store->reviewIssue($issueId,42,'Synthetic review'); },'A stale replacement check cannot justify closing an old issue');
-	$db->prepare('UPDATE checks SET checked_at=? WHERE id=?')->execute([$current['checked_at'],$current['id']]);
-	$historyCount = count($store->history(1));
-	$store->reviewIssue($issueId,42,'Intentional replacement reviewed against the synthetic original.');
-	$reviewed = $store->issue($issueId);
-	verifyStore($reviewed['resolved_at'] !== null && strpos($reviewed['resolution'],'backend user 42') !== false,'Explicit replacement review records its operator and resolution');
-	verifyStore(count($reviewed['reviews']) === 1 && (int)$reviewed['reviews'][0]['user_id'] === 42
-		&& (int)$reviewed['reviews'][0]['check_id'] === (int)$current['id'] && $reviewed['reviews'][0]['reviewed_at'] !== '',
-		'A review permanently links its operator, timestamp, note and successful replacement check');
-	verifyStore(count($store->history(1)) === $historyCount && $reviewed['expected_md5'] === str_repeat('a',32),'Review preserves old file checks and their original expected checksum');
-	failsStore(static function() use ($store,$issueId) { $store->reviewIssue($issueId,42,'Second review'); },'A resolved issue cannot be silently reviewed again');
-	$reopened = $store->startRun(5,['original'],42);
-	$store->record($reopened['id'],1,[fileResult(1,'original','mismatch')]);
-	$reopenedIssue = $store->issue($issueId);
-	verifyStore($reopenedIssue['resolved_at'] === null && $reopenedIssue['reviews'] === $reviewed['reviews'],
-		'Reopening a previously reviewed issue preserves every prior administrator review');
-	$store->endRun($reopened['id'],'completed');
-	$repaired = $store->startRun(5,['original'],42);
-	$store->record($repaired['id'],1,[fileResult(1,'original','verified')]);
-	verifyStore($store->issue($issueId)['resolved_at'] !== null && $store->issue($issueId)['reviews'] === $reviewed['reviews'],
-		'Later automatic reverification also retains explicit administrator review history');
-	$store->endRun($repaired['id'],'completed');
-	$multi = $store->startRun(5,['original','preview'],42);
-	failsStore(static function() use ($store,$multi) { $store->record($multi['id'],2,[fileResult(2,'original','verified')]); },'A representation checkpoint requires every configured version');
-	$bad = fileResult(2,'preview','mismatch'); $bad['fingerprint'] = 'invalid';
-	failsStore(static function() use ($store,$multi,$bad) { $store->record($multi['id'],2,[fileResult(2,'original','verified'),$bad]); },'A late invalid version rolls back the whole checkpoint');
-	verifyStore($store->activeRun()['cursor'] === 0 && $store->history(2) === [],'A failed multiversion transaction leaves no partial verification');
-	failsStore(static function() use ($store,$multi) { $store->record($multi['id'],2,[fileResult(2,'original','verified'),fileResult(2,'original','verified')]); },'Duplicate versions do not satisfy a complete checkpoint');
-	$store->record($multi['id'],2,[fileResult(2,'original','verified'),fileResult(2,'preview','unverified')]);
-	verifyStore(count($store->history(2)) === 2 && $store->activeRun()['checked'] === 2,'Complete multiversion outcomes are retained together');
-	$previewIssue = (int)$store->problems()[0]['issue_id'];
-	failsStore(static function() use ($store,$previewIssue) { $store->reviewIssue($previewIssue,42,'Synthetic preview review'); },'An unverified current file cannot be reviewed as repaired');
-	$store->endRun($multi['id'],'failed');
-	verifyStore($store->activeRun() === null && $store->recentRuns(1)[0]['status'] === 'failed','A failed run remains visible but ceases to be active');
-	failsStore(static function() use ($store,$multi) { $store->record($multi['id'],3,[fileResult(3,'original','verified'),fileResult(3,'preview','verified')]); },'Completed or failed runs cannot receive later checkpoints');
-	$invalidVerified = $store->startRun(5,['original'],42);
-	$missingChecksum = fileResult(3,'original','verified'); unset($missingChecksum['expected_md5']);
-	failsStore(static function() use ($store,$invalidVerified,$missingChecksum) { $store->record($invalidVerified['id'],3,[$missingChecksum]); },'Verified outcomes require an actual recorded upload checksum');
-	verifyStore($store->activeRun()['cursor'] === 0 && $store->history(3) === [],'A false verified result cannot advance the sweep');
-	$store->endRun($invalidVerified['id'],'failed');
-	$before = hash_file('sha256',$directory.'/health.sqlite');
-	$readOnly = new Store($config,false,true);
-	$readOnly->summary(); $readOnly->recentRuns(); $readOnly->history(1); $readOnly->problems();
-	verifyStore(hash_file('sha256',$directory.'/health.sqlite') === $before,'Dashboard reads leave ledger bytes unchanged');
-	foreach ([static function() use ($readOnly) { $readOnly->heartbeat(); },static function() use ($readOnly) { $readOnly->lock(); },
-		static function() use ($readOnly) { $readOnly->startRun(5,['original'],42); },
-		static function() use ($readOnly,$issueId) { $readOnly->reviewIssue($issueId,42,'Read-only synthetic review'); },
-		static function() use ($readOnly,$multi) { $readOnly->endRun($multi['id'],'completed'); },
-		static function() use ($readOnly,$multi) { $readOnly->record($multi['id'],3,[fileResult(3,'original','verified')]); }] as $write) {
-		failsStore($write,'Every ledger mutation is rejected in read-only mode');
+	$abandoned=$reader->summary();
+	verifyStore($abandoned['active_run']===null && $abandoned['latest_run']['status']==='interrupted',
+		'An unfinished journal whose native lock is gone is shown as interrupted');
+	$disk=json_decode(file_get_contents($directory.'/runs/'.$unresolvedId.'.json'),true,512,JSON_THROW_ON_ERROR);
+	verifyStore($disk['status']==='running','Read-only interruption detection does not rewrite historical journal bytes');
+	$lock=$store->lock(); $nextId=str_repeat('e',32); $store->startRun($nextId,false);
+	$disk=json_decode(file_get_contents($directory.'/runs/'.$unresolvedId.'.json'),true,512,JSON_THROW_ON_ERROR);
+	verifyStore($disk['status']==='interrupted','A new lock-owning wrapper records abandoned prior invocation state');
+	$store->finishRun($nextId,'interrupted',143,'interrupted',false); Store::unlock($lock);
+	failsStore(static function() use ($store) { $store->startRun(str_repeat('1',32),false); },'A journal writer must own the patrol lock before starting work');
+	$lock=$store->lock(); $guardId=str_repeat('1',32); $store->startRun($guardId,false); Store::unlock($lock);
+	failsStore(static function() use ($store,$guardId) { $store->heartbeat($guardId); },'An unlocked writer cannot impersonate a live native process');
+	failsStore(static function() use ($store,$guardId) { $store->finishRun($guardId,'failed',1,'runner_failed',false); },'An unlocked writer cannot finalize another native execution');
+	$lock=$store->lock(); $store->finishRun($guardId,'interrupted',143,'interrupted',false); Store::unlock($lock);
+	verifyStore($reader->summary(time()+120)['overdue'],'Old native execution evidence becomes overdue after the configured interval');
+	$changed=new Store(new Config(array_replace($values,['versions'=>'original,preview'])),false,true);
+	verifyStore($changed->summary()['last_completed_at']===null && $changed->summary()['overdue'],
+		'A different requested scope requires its own observed completed invocation');
+	$before=fixtureEntries($directory);
+	foreach ([static function() use ($reader) { $reader->lock(); },
+		static function() use ($reader) { $reader->startRun(str_repeat('f',32),false); },
+		static function() use ($reader,$id) { $reader->heartbeat($id); },
+		static function() use ($reader,$id) { $reader->finishRun($id,'failed',1,'runner_failed',true); }] as $mutation) {
+		failsStore($mutation,'A web/report reader cannot change the native run journal');
 	}
-	verifyStore(hash_file('sha256',$directory.'/health.sqlite') === $before,'Rejected read-only writes preserve history');
-	verifyStore($readOnly->summary(time()+120)['worker_stale'] && $readOnly->summary(time()+120)['sweep_overdue'],'A quiet old ledger cannot keep reporting a live worker and current sweep');
-	verifyStore($readOnly->summary(time()+120)['overdue'] > 0,'Old file checks become overdue independently of saved success');
-	$changedScope = new Store(new Config(array_replace($values,['versions' => 'original,preview'])),false,true);
-	verifyStore($changedScope->summary()['sweep_overdue'],'A newly configured version requires a matching completed sweep');
-	foreach ([['versions' => ''],['versions' => '../original'],['versions' => 'original;touch'],['batch_size' => 0],['batch_size' => 1001],
-		['max_seconds' => ''],['check_interval_seconds' => -1],['worker_stale_seconds' => 0]] as $override) {
-		$invalid = new Config(array_replace($values,$override));
-		$method = ['versions' => 'versions','batch_size' => 'batchSize','max_seconds' => 'maxSeconds','check_interval_seconds' => 'intervalSeconds','worker_stale_seconds' => 'staleSeconds'][array_key_first($override)];
-		failsStore(static function() use ($invalid,$method) { $invalid->$method(); },'Invalid configuration must fail explicitly');
+	verifyStore(fixtureEntries($directory)===$before,'Rejected reader mutations leave all native report and journal bytes untouched');
+	$corrupt=str_repeat('f',32); privateReport($directory.'/runs/'.$corrupt.'.json','not JSON');
+	$rows=$reader->recentRuns(); $row=array_values(array_filter($rows,static function($item) use ($corrupt) { return $item['id']===$corrupt; }))[0];
+	verifyStore($row['status']==='failed' && $row['reason']==='journal_unreadable','Unreadable journal metadata is visible as an error rather than omitted as healthy');
+	privateReport($directory.'/reports/'.$corrupt.'.txt','Synthetic report with damaged execution metadata.');
+	failsStore(static function() use ($reader,$corrupt) { $reader->reportPath($corrupt); },'A tracked ID with corrupt metadata cannot serve an unvalidated report');
+	$report=$store->reportFile($id); unlink($report); symlink($outside,$report);
+	failsStore(static function() use ($reader,$id) { $reader->reportPath($id); },'A tracked report replaced with a symlink cannot be retrieved');
+	unlink($report); privateReport($report);
+	$stateLink=$directory.'/alias'; symlink($directory,$stateLink);
+	failsStore(static function() use ($stateLink) { (new Config(['state_directory'=>$stateLink]))->stateDirectory(); },'State roots cannot be symlink aliases');
+	unlink($stateLink);
+	$legacyOnly=$directory.'/legacy-state'; mkdir($legacyOnly,0700); mkdir($legacyOnly.'/reports',0700);
+	privateReport($legacyOnly.'/reports/existing-native.txt','Synthetic existing native report.');
+	$legacyBefore=fixtureEntries($legacyOnly);
+	$legacyReader=new Store(new Config(array_replace($values,['state_directory'=>$legacyOnly])),false,true);
+	verifyStore($legacyReader->recentRuns()[0]['status']==='untracked' && fixtureEntries($legacyOnly)===$legacyBefore,
+		'A legacy reports-only state can be displayed without creating run or log directories');
+	failsStore(static function() { (new Config(['state_directory'=>dirname(__DIR__,3)]))->stateDirectory(); },'State remains outside the source checkout');
+	verifyStore((new Config(['versions'=>'']))->versions()===[],'An explicitly blank versions setting preserves the native all-version behavior');
+	verifyStore((new Config(['kinds'=>'all']))->scope()===['kinds'=>['all'],'versions'=>['original']],'Native all-kind selection remains explicit');
+	foreach ([['kinds'=>''],['kinds'=>'all,ca_attributes'],['kinds'=>'../invalid'],['versions'=>'original;touch'],['versions'=>'Original'],
+		['patrol_interval_seconds'=>0],['overdue_grace_seconds'=>-1],['worker_stale_seconds'=>0]] as $override) {
+		$invalid=new Config(array_replace($values,$override));
+		$method=['kinds'=>'kinds','versions'=>'versions','patrol_interval_seconds'=>'intervalSeconds','overdue_grace_seconds'=>'graceSeconds','worker_stale_seconds'=>'staleSeconds'][array_key_first($override)];
+		failsStore(static function() use ($invalid,$method) { $invalid->$method(); },'Invalid native scope and schedule settings fail explicitly');
 	}
-	verifyStore((new Config(array_replace($values,['versions' => 'original, preview,original'])))->versions() === ['original','preview'],'Media version names are trimmed and deduplicated');
-	failsStore(static function() { (new Config(['state_directory' => dirname(__DIR__,3)]))->stateDirectory(); },'State cannot live inside the source checkout');
-	$link = $directory.'/alias'; symlink($directory,$link);
-	failsStore(static function() use ($link) { (new Config(['state_directory' => $link]))->stateDirectory(); },'A symlink cannot become the private state root');
-	unlink($link);
-	chmod($directory.'/health.sqlite',0640); clearstatcache(true,$directory.'/health.sqlite');
-	failsStore(static function() use ($config) { new Store($config,false,true); },'A readable but nonprivate ledger is rejected');
-	chmod($directory.'/health.sqlite',0600); clearstatcache(true,$directory.'/health.sqlite');
-	echo "File Health ledger: {$checks} checks passed\n";
-} finally { removeStoreFixture($directory); }
+	echo "File Health native reports: {$checks} checks passed\n";
+} finally { removeFixture($directory); }

@@ -5,10 +5,8 @@ require_once __DIR__.'/lib/Presentation.php';
 
 class fileHealthPlugin extends BaseApplicationPlugin {
 	private $config;
-	private $root;
 	public function __construct($path) {
-		$this->root = $path;
-		$this->description = _t('Check representation media integrity in the background and review recorded file health.');
+		$this->description = _t('Review native media-integrity patrols and their reports.');
 		$this->config = \FileHealth\Config::load($path);
 		parent::__construct();
 	}
@@ -25,16 +23,5 @@ class fileHealthPlugin extends BaseApplicationPlugin {
 			$menu['file_health'] = ['displayName' => _t('File health'),'requires' => ['action:is_administrator' => 'AND'],'navigation' => ['overview' => $item]];
 		}
 		return $menu;
-	}
-	public function hookCLICaUtilsGetCommands($commands) {
-		require_once __DIR__.'/lib/Tool.php';
-		return array_merge($commands,\FileHealth\Tool::commands());
-	}
-	public function hookCLICaUtilsGetToolWithSettings($parameters) {
-		if (($parameters[0] ?? null) === 'fileHealth') {
-			require_once __DIR__.'/lib/Tool.php';
-			$parameters['tool'] = new \FileHealth\Tool($this->config,$this->root);
-		}
-		return $parameters;
 	}
 }

@@ -1,8 +1,8 @@
 # Copy to plugin.local.conf; keep real installation values outside Git.
 enable = 1
-state_directory = /var/lib/providence-file-health
+state_directory = /var/lib/providence-fixity
+kinds = ca_object_representations
 versions = original
-batch_size = 25
-max_seconds = 60
-check_interval_seconds = 604800
-worker_stale_seconds = 3600
+patrol_interval_seconds = 604800
+overdue_grace_seconds = 86400
+worker_stale_seconds = 300

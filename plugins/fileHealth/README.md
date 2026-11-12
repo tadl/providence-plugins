@@ -1,195 +1,155 @@
 # File Health
 
-Independent integrity monitoring for Providence, using the **unmodified native
-`check-media-fixity` implementation** and its upload-time MD5 signatures. No
-preservation deposit, LOCKSS configuration, or other application plugin is needed.
+A read-only Providence interface for **native `check-media-fixity` patrols and
+reports**. No preservation deposit, LOCKSS service, or other plugin is required.
+The optional dashboard widget shows recent patrols and links to their reports.
 
-This first version checks **representation media**, with `original` as the default
-version. It stores completed checks, unresolved issues, and sweep history in a
-private SQLite database. An optional dashboard widget and the plugin's File Health
-page display saved results; neither reads media or starts work during a web request.
+The standalone CLI adapter runs the native command once, records its start,
+heartbeat, exit and report availability, and leaves email delivery to Providence.
+It does not hash media, create checksum baselines, infer verified files from
+native reports, or run an additional scanner.
 
-Source only: installing, initializing, scheduling and live validation are separate
-operator steps. Shared configuration defaults to disabled. No production files,
-database tables, services, caches or schedules are changed by this repository.
+Source changes do not install, enable or schedule this plugin. Shared configuration
+defaults to disabled; deployment and installed validation are separate steps.
 
-## Scope and interpretation
+## What the status means
 
-- All non-deleted representation records are eligible, including private records,
-  regardless of collection membership or preservation history. The UI and CLI
-  require an **active native Providence administrator** because results cover the
-  entire installation. There are no institution IDs, account IDs or collection
-  mappings in source. Non-administrator views are deliberately not supplied yet.
-- `versions = original` checks the uploaded representation original. A comma-separated
-  list can opt into other native version names. An unavailable version is unverified,
-  not a successful check. Generated derivatives can be regenerated; damage to an
-  original requires a known-good replacement.
-- **Metadata File/Media attributes and representation multifiles are excluded.**
-  The native attribute branch has no per-value filter for bounded checking, and
-  the native representation branch does not enumerate multifiles. A completed
-  sweep is evidence only for the configured representation versions, never a
-  claim that every file on the server is healthy. No directory crawl is performed.
-- A missing descriptor, checksum, local path, external reference, icon/substituted
-  version, queued processing or unsupported multipage version is **unverified**.
-  Missing local bytes, unreadable files and mismatches have separate statuses.
-- MD5 uses Providence's existing ingest evidence to detect accidental corruption.
-  A match is not a format validation, malware scan, backup test, authenticity
-  signature, or evidence of historical correctness before the original ingest.
-- Status is dated evidence. New uploads or later edits are not instantly checked.
-  Recorded target counts are history, not a live inventory. Check dates, unfinished
-  sweeps, overdue results and the scheduler heartbeat remain visible.
+| Status | Meaning |
+| --- | --- |
+| Running | A journaled native invocation is active. An overdue heartbeat is shown separately. |
+| No errors reported | Native exit zero and a nonempty report were observed. This does not establish that every file was checked. |
+| Needs attention | Native exit was nonzero and a report exists. This may include checksum findings, mail failures or other native errors; review the report and private log. |
+| Failed | A normal native result/report was not obtained. |
+| Interrupted | Completion was not recorded, or the adapter was interrupted. This never implies success. |
+| Untracked report | An existing native text report is available, but its execution outcome and scope were not journaled. Its file date is not a confirmed patrol completion time. |
 
-## How checking works
+The native checker can skip files without a checksum or resolvable path. Reports
+list failures; an empty or header-only report is not evidence of individual file
+verification. There are no per-file verified counts, issue-resolution workflow or
+recovery claims in this plugin. Backups and tested restorations remain separate.
 
-The scheduled `file-health-check` command invokes
-`CLIUtils::check_media_fixity()` with the native `Zend_Console_Getopt`, one known
-representation/version at a time. This is the same implementation as
-`caUtils check-media-fixity`; it does not parse translated console output or the
-native CSV report. The native function's return value alone is not success:
-native error counts are checked as well. Because that command exposes no positive
-file-read count and can silently skip files, a zero-error result receives a
-supplementary MD5 read against the same saved upload signature. Healthy files
-therefore require **two reads**. No new checksum baseline is established.
+Scope is saved with each tracked invocation. Defaults match an originals patrol:
+`kinds = ca_object_representations`, `versions = original`. Other native kinds or
+versions can be passed unchanged; blank versions requests all stored versions.
+Native coverage limits, including representation multifiles, remain unchanged.
+Older reports with no scope are never assumed to use the current configuration.
 
-The adapter checks coverage before invoking the native checker and compares the
-media descriptor and file identity before/afterward. Concurrent changes produce
-`changed`, rather than a clean result. This is an application-level race check,
-not an atomic database/filesystem snapshot; metadata times have the resolution
-provided by PHP/native storage. Run during quieter I/O periods when practical.
+## Reuse existing patrol data
 
-A sweep pins its configured versions and highest representation ID. Each invocation
-advances at most `batch_size` representations and stops between files after the
-soft `max_seconds` budget. One large file can exceed that budget. Each representation's
-results and cursor commit in the same transaction. A crash leaves the sweep
-incomplete; the next invocation resumes from the last committed representation.
-A database/inventory failure marks the sweep failed. Later sweeps retain earlier
-issues and history. An OS lock prevents concurrent scanner processes.
+Point `state_directory` at the existing private patrol directory, containing a
+`reports/` directory of native `.txt` reports. The plugin can list those reports
+without initializing a database or changing files. Reports without wrapper
+journals are labeled **Untracked report**. The plugin does not infer successful
+completion from their filenames or contents; they do not satisfy its tracked
+patrol freshness indicator.
 
-The native checker is run directly in the isolated CLI, with a validated active
-backend administrator and native ACL context. Do not route it through the generic
-`process-task-queue`, which disables ACLs, and do not supply an ACL-disabling flag.
-No native queue handler, external daemon or preservation worker is used.
+If a direct native patrol holds the shared lock without a run journal, the
+interface shows that the patrol lock is in use. It does not invent a start time,
+scope, exit result or successful completion for that invocation.
 
-## Installation preparation
+For future complete run history, replace the existing cron command with the
+standalone adapter below. Do not keep a second patrol schedule. The adapter and
+the direct native patrol share `state_directory/patrol.lock`, so manual and
+scheduled jobs cannot overlap when both use that lock.
 
-Requires Providence 2.0.10-compatible native CLI interfaces, PHP 8.3+, PDO SQLite,
-and readable local representation media. Standalone tests cover the 2.0.10 source;
-an authorized staging check is still required for other versions and the actual
-installation's storage adapters, MySQL permissions, routing and dashboard.
+## Prepare the adapter and interface
 
-1. Copy this directory to `app/plugins/fileHealth/`, preserving any existing
-   `conf/plugin.local.conf`. Do not copy tests into a public web directory.
-2. Create a private state directory **outside the web root and Git checkout**, owned
-   by the service account. On a typical Linux installation:
+Requires PHP 8.3 CLI with `proc_open` and `pcntl`, a working native Providence CLI,
+and private service-account storage outside the web root and Git checkout.
+No SQLite database, Composer package, checksum tool, or core patch is added.
+Web access requires a logged-in, active native Providence administrator because
+reports can describe private records across the installation.
+
+1. Install this plugin at `app/plugins/fileHealth/`, preserving any existing
+   `conf/plugin.local.conf`. Keep tests outside the deployed public tree.
+2. Use the existing native patrol state directory or create one. For example:
 
    ```sh
-   sudo install -d -m 0700 -o www-data -g www-data /var/lib/providence-file-health
+   sudo install -d -m 0700 -o www-data -g www-data /var/lib/providence-fixity
    ```
 
 3. Copy `conf/plugin.local.conf.example` to the installation's ignored
-   `conf/plugin.local.conf`; review paths, intervals and batch size, then enable it.
-4. From the installed Providence root, initialize the plugin ledger. The example
-   administrator ID is illustrative; substitute an active authorized account:
-
-   ```sh
-   sudo -u www-data -- php support/bin/caUtils file-health-init --user-id=7 --apply
-   sudo -u www-data -- php support/bin/caUtils file-health-check --user-id=7 --apply --quiet
-   ```
-
-5. Install the optional companion `fileHealth` dashboard widget from the independent
+   `conf/plugin.local.conf`; set the shared directory, expected scope, frequency
+   and grace period. Enable the interface when ready.
+4. Install the optional `fileHealth` widget from the separate
    [providence-widgets repository](https://github.com/tadl/providence-widgets).
-   Follow its README for dashboard configuration and activation. The plugin also
-   adds a File Health link to the administrator Manage menu. The widget explicitly
-   depends on this plugin; neither depends on preservation.
+   The administrator Manage menu also opens the report/history page.
 
-If native cached plugin/menu definitions need refreshing, use the installation's
-reviewed application-cache procedure during an approved maintenance window.
-This plugin never clears caches or restarts services automatically.
+The standalone adapter can be installed privately without enabling the web
+plugin. Keep its `support/` and `lib/` relative layout intact. It loads no
+application configuration itself; only its native child bootstraps Providence.
 
-## Scheduling
+If plugin/menu discovery requires refreshing caches, follow the site's reviewed
+maintenance procedure. This plugin never purges caches or restarts services.
 
-Install a cron entry or systemd timer separately, using the service account. For
-example, a service-account crontab could advance one batch every five minutes:
+## Run one full native patrol
 
-```cron
-*/5 * * * * cd /path/to/providence && /usr/bin/php support/bin/caUtils file-health-check --user-id=7 --apply --quiet >> /private/log/file-health.log 2>&1
-```
-
-Those paths and the account ID are synthetic installation placeholders. Create
-the private log directory with suitable ownership/permissions and arrange log
-rotation. Do not use `--restart` in the recurring schedule. The command returns
-failure when unresolved issues exist, even if its batch finished successfully;
-continued scheduled invocations still advance the sweep.
-
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `versions` | `original` | Comma-separated native representation version names. |
-| `batch_size` | `25` | Maximum representations per invocation. |
-| `max_seconds` | `60` | Soft time limit, checked between representations. |
-| `check_interval_seconds` | `604800` | Start another sweep this many seconds after the preceding completed sweep's **start**. |
-| `worker_stale_seconds` | `3600` | Warn when no scheduled invocation has updated its heartbeat within this period. |
-
-Tune the schedule and batch size so an entire sweep finishes comfortably within
-the selected interval. The interval is an operator policy, not a universal
-preservation recommendation. If a sweep takes longer, the next one becomes due
-immediately. A heartbeat only proves the scheduler ran; it does not imply a
-successful or completed sweep. Configure outside monitoring if you need alerts
-when nobody opens Providence; this version does not send email or notifications.
-
-For saved status without reading media or modifying the ledger:
+Run as the existing patrol's service account. Substitute installation paths and
+the authorized recipient; values here are illustrative:
 
 ```sh
-sudo -u www-data -- php support/bin/caUtils file-health-status --user-id=7 --quiet
+sudo -u www-data -- php /path/to/fileHealth/support/run_native_patrol.php \
+  --application-root=/path/to/providence \
+  --state-directory=/var/lib/providence-fixity \
+  --kinds=ca_object_representations --versions=original \
+  --email=operator@example.org
 ```
 
-## Reviewing damage and replacement candidates
+The adapter creates private `runs/`, `reports/` and `logs/` directories as needed.
+It journals a fresh opaque ID, invokes unmodified `caUtils check-media-fixity`
+once, and records its outcome after it exits. Only the native command reads
+media or sends email. Omitting `--email` disables native email for that invocation.
+Native sender/SMTP configuration remains installation-local.
 
-1. Review the affected representation and its dated check history. Preserve the
-   suspect bytes until a recovery decision is made. A checksum failure does not
-   authorize automatic deletion, replacement or restoration.
-2. Retrieve a candidate from a backup, an original workstation or a preservation
-   copy. Verify it **before uploading**, against the expected checksum saved with
-   the original issue:
+The adapter returns nonzero when the native result needs review. Stdout/stderr
+is drained to a bounded private log, never rendered by the interface. Reports
+remain complete and downloadable by administrators. SIGINT/SIGTERM are forwarded
+to the child and journaled as interrupted. The child retains the patrol lock if
+the wrapper is killed unexpectedly.
 
-   ```sh
-   sudo -u www-data -- php support/bin/caUtils file-health-verify-candidate --user-id=7 --issue-id=3 --file=/private/recovery/candidate.tif --quiet
-   ```
+An existing direct native cron command can still be run manually with its same
+lock, scope and report directory. Its report appears as untracked until run
+journaling is adopted. Wrapper metadata is not created retroactively.
 
-   This only reads the candidate; it does not upload it, change Providence's
-   signature or resolve an issue. An issue without an original expected checksum
-   cannot establish a verified recovery by this method.
-3. Restore through the site's reviewed media workflow. A normal re-upload can
-   change native signatures and file paths, so preserve the old issue evidence.
-4. Start a new bounded sweep immediately after the repair, then let normal
-   scheduled invocations continue it:
+## Schedule a single patrol
 
-   ```sh
-   sudo -u www-data -- php support/bin/caUtils file-health-check --user-id=7 --apply --restart --quiet
-   ```
+Replace the existing patrol command during an authorized deployment. Example
+system cron entry (UTC server; illustrative paths and recipient):
 
-5. A successful native check against the **same recorded file identity** resolves
-   that issue automatically. A newly uploaded generation does not silently erase
-   the previous generation's damage. Once the current file has a recent successful
-   check, an administrator can explicitly review the older issue:
+```cron
+0 8 * * 0 www-data umask 077 && /usr/bin/php /path/to/fileHealth/support/run_native_patrol.php --application-root=/path/to/providence --state-directory=/var/lib/providence-fixity --kinds=ca_object_representations --versions=original --email=operator@example.org
+```
 
-   ```sh
-   sudo -u www-data -- php support/bin/caUtils file-health-review --user-id=7 --issue-id=3 --note='Verified replacement against saved ingest checksum; reviewed the new generation.' --apply
-   ```
+Do not put an outer `flock` on `patrol.lock` around the adapter: it takes that lock
+itself. A direct native command still needs its existing external lock. Do not
+invoke the adapter from the generic task queue or widget rendering. Measure full
+patrol duration before choosing a different cadence or I/O window.
 
-Reviewing closes an issue; it does not claim the old damaged bytes were repaired.
-All recorded checks, original expected checksums and explicit administrator reviews
-remain, including reviews of an issue that later reopens. Complete application
-backups, independent copies, metadata preservation and tested restorations still
-need their own procedures.
+| Interface setting | Default | Meaning |
+| --- | --- | --- |
+| `state_directory` | `/var/lib/providence-fixity` | Shared native reports and run journals. |
+| `kinds` | `ca_object_representations` | Expected native kinds for tracked-patrol freshness. |
+| `versions` | `original` | Expected versions; blank means native stored versions. |
+| `patrol_interval_seconds` | `604800` | Expected time between tracked patrol starts. |
+| `overdue_grace_seconds` | `86400` | Grace after that interval before showing overdue. |
+| `worker_stale_seconds` | `300` | Age of an active heartbeat before showing a warning. |
 
-## Private state and testing
+Scheduling belongs to cron/timers. A weekly patrol is not expected to emit a
+heartbeat between runs. Freshness uses completed tracked invocations of the
+configured scope; failed/interrupted or untracked reports do not make it current.
 
-Back up the entire private state directory while the scanner is idle, including
-`health.sqlite`; keep its ownership and private permissions. It contains record
-labels and historical checksum evidence. It is independent of application caches
-and preservation state. There is no automatic purge of history in this version;
-monitor growth and agree retention before adding one. Never commit this state or
-private logs. Removing source does not remove the private ledger.
+## Privacy, retention and verification
+
+State directories must be canonical, private (0700), and accessible to the service
+account. The adapter writes private files (0600) with atomic journal replacement.
+Authenticated downloads enforce safe report lookup; process logs and arbitrary
+filesystem paths are not exposed. Native reports can contain private labels,
+checksums and stored file paths, so downloads remain administrator-only.
+
+Back up the private directory while the patrol is idle. Reports, logs and journals
+are retained until an operator agrees a retention policy; there is no automatic
+deletion. Earlier experimental File Health SQLite state, if any, is neither
+migrated nor deleted and is not used by the new journal.
 
 From the source monorepo root:
 
@@ -197,11 +157,8 @@ From the source monorepo root:
 bash scripts/check.sh
 ```
 
-File Health tests use synthetic records/files and temporary private SQLite state.
-The native suite executes the real trusted Providence Maintenance trait and
-`caGetOption` with a real Zend parser, without bootstrapping an installation or
-reading connection settings. Set `PROVIDENCE_REFERENCE_ROOT` for another trusted
-reference checkout and `ZEND_REFERENCE_ROOT` to the directory containing `Zend/`.
-The workspace's existing sibling vendor library is detected automatically. CI
-checks out both reference sources at pinned commits. This adds no plugin runtime
-dependency beyond Providence's existing native CLI dependencies.
+Tests use synthetic native subprocesses, including nonzero exits, missing reports,
+signals and output limits. They check read-only journal/legacy-report behavior,
+unsafe paths, authentication and escaping without bootstrapping an installation.
+They do not establish installed SMTP delivery, native adapter behavior, or a
+complete real patrol. Those remain operational validation steps.
