@@ -68,15 +68,52 @@ final class Service {
 		}
 		finally { flock($lock,LOCK_UN); fclose($lock); }
 	}
-	public function confirm(string $id, $user, string $reference) : void {
+	public function confirm(string $id, $user, string $reference='') : void {
 		$job = $this->store->get($id); self::authorize($user,(int)$job['collection_id'],'can_confirm_preservation');
 		$lock = $this->store->lock((int)$job['collection_id']);
 		try {
 			$job = $this->store->get($id);
-			if ($job['status'] !== 'uploaded' || trim($reference) === '' || strlen($reference) > 2000) { throw new Failure('An uploaded deposit and a preservation confirmation reference are required.'); }
-			if ($job['parent_id'] && $this->store->get($job['parent_id'])['status'] !== 'confirmed') { throw new Failure('Confirm the preceding deposit before its supplement.'); }
-			$this->store->update($id,['status' => 'confirmed','confirmation' => ['reference' => trim($reference),'user_id' => (int)$user->getPrimaryKey(),'recorded_at' => gmdate('c')]]);
+			if (!in_array($job['status'],['uploaded','confirmed'],true) || strlen($reference) > 2000) { throw new Failure('An uploaded deposit is required for preservation confirmation.'); }
+			if ($job['status'] === 'uploaded') {
+				if ($job['parent_id'] && $this->store->get($job['parent_id'])['status'] !== 'confirmed') { throw new Failure('Confirm the preceding deposit before its supplement.'); }
+				$confirmation = ['user_id' => (int)$user->getPrimaryKey(),'recorded_at' => gmdate('c')];
+				if (trim($reference) !== '') { $confirmation['reference'] = trim($reference); }
+				$this->store->update($id,['status' => 'confirmed','confirmation' => $confirmation]);
+				$job = $this->store->get($id);
+			}
+			if (empty($job['confirmation']['recorded_at'])) { throw new Failure('The stored preservation confirmation is missing.'); }
+			// Confirmation is durable before local copies are discarded. A cleanup
+			// retry must never replace the original confirming operator or timestamp.
+			$confirmation = $job['confirmation'];
+			try {
+				$directory = $this->store->directory($id); $paths = [];
+				foreach ($job['result']['parts'] ?? [] as $part) {
+					$name = $part['filename'] ?? '';
+					if (!preg_match('/^[A-Za-z0-9_.-]+\.tar$/D',$name) || basename($name) !== $name) { throw new Failure('A stored archive filename is invalid.'); }
+					$path = $directory.'/'.$name; clearstatcache(true,$path);
+					if (is_link($path) || (file_exists($path) && !is_file($path))) { throw new Failure('A local archive has an unexpected file type.'); }
+					if (is_file($path)) { $paths[] = $path; }
+				}
+				foreach ($paths as $path) { if (!@unlink($path)) { throw new Failure('A local archive could not be removed.'); } }
+				$this->discardWorkingFiles($directory,true);
+				unset($confirmation['local_archive_cleanup_error']);
+				$confirmation['local_archives_removed_at'] = gmdate('c');
+			} catch (Failure $e) {
+				$confirmation['local_archive_cleanup_error'] = true;
+				$this->store->update($id,['confirmation' => $confirmation]);
+				throw new Failure('Preservation is confirmed, but local file cleanup failed. Check job-directory permissions and retry local cleanup.');
+			}
+			$this->store->update($id,['confirmation' => $confirmation]);
 		} finally { flock($lock,LOCK_UN); fclose($lock); }
+	}
+	private function discardWorkingFiles(string $directory, bool $logs=false) : void {
+		$names = ['request.json','worker-result.json'];
+		if ($logs) { $names = array_merge($names,['worker-error.txt','php-worker-output.txt','php-worker-error.txt']); }
+		foreach ($names as $name) {
+			$path = $directory.'/'.$name; clearstatcache(true,$path);
+			if (is_link($path) || (file_exists($path) && !is_file($path))) { throw new Failure('A redundant working file has an unexpected file type.'); }
+			if (is_file($path) && !@unlink($path)) { throw new Failure('A redundant working file could not be removed.'); }
+		}
 	}
 	public function run(string $id) : array {
 		$job = $this->store->get($id);
@@ -125,6 +162,7 @@ final class Service {
 			$summary['recovery_chain'] = $result['snapshot']['chain'] ?? [];
 			if ($summary['recovery_chain']) { $summary['recovery_chain'][count($summary['recovery_chain'])-1]['parts'] = $result['parts']; }
 			$this->store->update($id,['result' => $summary]);
+			$this->discardWorkingFiles($directory);
 			if ($job['mode'] === 'scan') { $status = 'scanned'; }
 			elseif ($job['mode'] === 'supplemental' && !$result['changed'] && !$result['parts']) { $status = 'unchanged'; }
 			elseif ($this->config->get('transport','local') === 'local') { $status = 'built'; }
@@ -135,6 +173,7 @@ final class Service {
 				$status = 'uploaded';
 			}
 			$this->store->update($id,['status' => $status]);
+			$this->discardWorkingFiles($directory,true);
 			return ['status' => $status,'parts' => count($result['parts'])];
 		} catch (\Throwable $e) {
 			// Native exceptions may include SQL, credentials or catalogue values.

@@ -60,6 +60,12 @@ unused vocabulary/relationship definitions, hierarchy indexing and view counts
 also do not affect preservation status. The full configuration and authority
 data remain in the saved snapshot; later deposits capture their current state.
 
+The archival root's own sort order among sibling collections is recovery
+context. Changing that value alone does not make its preservation stale.
+Ordering of subordinate collections, objects and direct relationships within
+the preserved hierarchy remains significant, as does moving its root to a
+different parent.
+
 The comparison retains definitions actually needed to interpret the collection's
 values: used field codes/datatypes and container ancestry, list bindings, selected
 terms and their ancestors/labels, used relationship types/labels and locales.

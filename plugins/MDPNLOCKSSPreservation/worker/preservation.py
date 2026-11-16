@@ -20,14 +20,25 @@ import shutil
 import stat
 import sys
 import tarfile
+import tempfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.9"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.10"
+TAG_READ_LIMIT = 512 * 1024 * 1024
 
 
 def encoded(value):
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+
+
+def encoded_digest(value):
+    # Match encoded() without allocating another complete recovery snapshot.
+    sha = hashlib.sha256()
+    for chunk in json.JSONEncoder(ensure_ascii=False, sort_keys=True, indent=2).iterencode(value):
+        sha.update(chunk.encode("utf-8"))
+    sha.update(b"\n")
+    return sha.hexdigest()
 
 
 def digest(path):
@@ -46,16 +57,25 @@ def logical_path(spec):
     return "data/originals/" + hashlib.sha256(spec["key"].encode()).hexdigest()[:32] + "/" + name
 
 
-def read_original(spec, destination=None):
-    """Copy through an open regular-file descriptor; reject changes during capture."""
-    sha = hashlib.sha256()
-    md5 = hashlib.md5(usedforsecurity=False)
+def original_path(spec):
     source_path = spec["source_path"]
     if isinstance(source_path, dict):
         source_path = os.fsdecode(base64.b64decode(source_path["$base64"]))
     source = Path(source_path)
     if not source.is_absolute() or source.is_symlink():
         raise ValueError("An original must resolve to an absolute regular file")
+    return source
+
+
+def file_identity(info):
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def read_original(spec, destination=None):
+    """Read through an open regular-file descriptor; reject changes during capture."""
+    sha = hashlib.sha256()
+    md5 = hashlib.md5(usedforsecurity=False)
+    source = original_path(spec)
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     with os.fdopen(os.open(source, flags), "rb") as stream:
         before = os.fstat(stream.fileno())
@@ -78,8 +98,7 @@ def read_original(spec, destination=None):
             if out:
                 out.close()
     current = source.stat()
-    identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-    if identity(before) != identity(after) or identity(after) != identity(current) or count != before.st_size:
+    if file_identity(before) != file_identity(after) or file_identity(after) != file_identity(current) or count != before.st_size:
         raise ValueError("An original changed during capture; run the deposit again")
     if spec.get("expected_md5") and md5.hexdigest().lower() != spec["expected_md5"].lower():
         raise ValueError("An original does not match Providence's recorded checksum")
@@ -89,11 +108,34 @@ def read_original(spec, destination=None):
     }
 
 
+def tar_member(name, size=0, directory=False):
+    member = tarfile.TarInfo(name)
+    member.size = size
+    member.type = tarfile.DIRTYPE if directory else tarfile.REGTYPE
+    member.mode = 0o700 if directory else 0o600
+    member.uid, member.gid = os.getuid(), os.getgid()
+    return member
+
+
+def add_original_to_tar(tar, root, spec, item):
+    """Stream originals into the archive; its manifests verify the captured hash."""
+    source = original_path(spec)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(source, flags), "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_size != item["size"]:
+            raise ValueError("An original changed before archive creation")
+        tar.addfile(tar_member(root + "/" + item["path"], item["size"]), stream)
+        after = os.fstat(stream.fileno())
+    if file_identity(before) != file_identity(after) or file_identity(after) != file_identity(source.stat()):
+        raise ValueError("An original changed during archive creation")
+
+
 def fingerprint(snapshot):
     content = {k: snapshot[k] for k in ("repository_id", "collection_id", "records", "relationships", "schema")}
     content["files"] = [{k: f[k] for k in ("key", "sha256", "size", "original_filename", "owner")} for f in snapshot["files"]]
     content["external_references"] = snapshot.get("external_references", [])
-    return hashlib.sha256(encoded(content)).hexdigest()
+    return encoded_digest(content)
 
 
 PRIMARY_TABLES = {"ca_collections", "ca_objects", "ca_object_representations", "ca_attribute_value_multifiles"}
@@ -124,7 +166,9 @@ def collection_records(snapshot):
         if table not in PRIMARY_TABLES and not table.startswith("ca_object_representation_"):
             continue
         result[table] = {key: {**record, "row": {k: v for k, v in record.get("row", {}).items()
-                                              if k not in ("hier_left", "hier_right", "view_count")}}
+                                              if k not in ("hier_left", "hier_right", "view_count")
+                                              and not (k == "rank" and table == "ca_collections"
+                                                       and str(key) == str(snapshot.get("collection_id")))}}
                          for key, record in rows.items()}
     return result
 
@@ -317,6 +361,26 @@ def dart3_bag_info(tags, profile, payload_bytes):
 
 
 def build(request):
+    output = Path(request["output_directory"])
+    # No working copy of the originals. Only verified archives leave this private
+    # workspace; any build failure removes every archive generated by that build.
+    with tempfile.TemporaryDirectory(prefix=".build-", dir=output) as workspace:
+        result = build_archives(request, Path(workspace))
+        published = []
+        try:
+            for part in result["parts"]:
+                destination = output / part["filename"]
+                # Atomic, same-filesystem publication without overwriting a file.
+                os.link(Path(workspace) / part["filename"], destination)
+                published.append(destination)
+        except BaseException:
+            for destination in published:
+                destination.unlink()
+            raise
+    return result
+
+
+def build_archives(request, output):
     snapshot = copy.deepcopy(request["snapshot"])
     # PHP encodes empty arrays as []; these two fields are keyed maps.
     for key in ("records", "relationships"):
@@ -333,26 +397,17 @@ def build(request):
         raise ValueError("The baseline belongs to another collection or installation")
     if job["mode"] == "supplemental" and job.get("parent_id") != parent["snapshot"]["deposit_id"]:
         raise ValueError("The supplemental parent does not match the supplied baseline")
-    output = Path(request["output_directory"])
-    stage = output / "staging"
     scan = job["mode"] == "scan"
-    if not scan:
-        estimated = sum(int(f.get("source_size", 0)) for f in snapshot["files"])
-        if shutil.disk_usage(output).free < estimated * 2 + len(encoded(snapshot)) * 20 + 16 * 1024 * 1024:
-            raise ValueError("Insufficient free staging space for a verified deposit")
-        stage.mkdir(mode=0o700)
     old_files = {f["key"]: f for f in parent["snapshot"]["files"]} if parent else {}
     specs = sorted(snapshot.pop("files"), key=lambda f: f["key"])
     if len({f["key"] for f in specs}) != len(specs):
         raise ValueError("Duplicate original file identities")
     inventory, selected = [], []
     for spec in specs:
-        path = stage / logical_path(spec) if not scan else None
-        item = read_original(spec, path)
+        item = read_original(spec)
         old = old_files.get(item["key"])
         if job["mode"] == "supplemental" and old and all(item[k] == old[k] for k in ("sha256", "size", "path")):
             item["bag_id"] = old["bag_id"]
-            path.unlink()
         elif not scan:
             selected.append(item)
         inventory.append(item)
@@ -364,7 +419,6 @@ def build(request):
     if scan:
         return {"snapshot": snapshot, "parts": [], "changed": changed}
     if job["mode"] == "supplemental" and not changed:
-        shutil.rmtree(stage)
         return {"snapshot": snapshot, "parts": [], "bag_info": {}, "changed": False}
     snapshot.update({"format": FORMAT, "deposit_id": job["id"], "mode": job["mode"], "revision": job["revision"],
                      "parent_deposit_id": job.get("parent_id"), "bag_group_identifier": request["bag_group_identifier"]})
@@ -396,30 +450,26 @@ def build(request):
     chain.append({"deposit_id": job["id"], "mode": job["mode"], "parts": [{"bag_id": n, "filename": n + ".tar"} for n in names]})
     snapshot["chain"] = chain
     metadata = metadata_files(snapshot)
+    metadata["data/README.txt"] = README
+    # Reserve archive bytes and conservative headers, with no duplicate payload
+    # tree. Unchanged originals do not consume space in a supplemental deposit.
+    required = sum(item["size"] for item in selected) + len(groups) * (
+        sum(len(content) for content in metadata.values()) + 128 * 1024
+    ) + len(selected) * 4096 + 16 * 1024 * 1024
+    if shutil.disk_usage(output).free < required:
+        raise ValueError("Insufficient free space for preservation archives")
+    sources = {spec["key"]: spec for spec in specs}
     parts, bag_info = [], {}
     for number, (name, items) in enumerate(zip(names, groups), 1):
-        bag = output / name
-        bag.mkdir(mode=0o700)
-        payloads = dict(metadata)
-        payloads["data/README.txt"] = README
-        for relative, content in payloads.items():
-            path = bag / relative
-            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            path.write_bytes(content)
-        for item in items:
-            destination = bag / item["path"]
-            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            (stage / item["path"]).rename(destination)
-        payload_paths = sorted(p for p in bag.rglob("*") if p.is_file())
-        manifest = "".join(digest(p) + "  " + p.relative_to(bag).as_posix() + "\n" for p in payload_paths)
-        (bag / "manifest-sha256.txt").write_text(manifest, encoding="utf-8")
-        (bag / "bagit.txt").write_text("BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n", encoding="utf-8")
-        payload_bytes = sum(p.stat().st_size for p in payload_paths)
+        payload_hashes = {relative: hashlib.sha256(content).hexdigest() for relative, content in metadata.items()}
+        payload_hashes.update({item["path"]: item["sha256"] for item in items})
+        manifest = "".join(payload_hashes[relative] + "  " + relative + "\n" for relative in sorted(payload_hashes)).encode("utf-8")
+        payload_bytes = sum(len(content) for content in metadata.values()) + sum(item["size"] for item in items)
         tags = dict(request["bag_metadata"])
         tags.update({"Bag-Group-Identifier": snapshot["bag_group_identifier"], "External-Identifier": name,
                      "Internal-Sender-Identifier": snapshot["repository_id"] + ":ca_collections:" + str(snapshot["collection_id"]),
                      "Bag-Count": str(number) + " of " + str(len(names)), "Bagging-Date": snapshot["captured_at"][:10],
-                     "Bagging-Software": SOFTWARE, "Payload-Oxum": str(payload_bytes) + "." + str(len(payload_paths))})
+                     "Bagging-Software": SOFTWARE, "Payload-Oxum": str(payload_bytes) + "." + str(len(payload_hashes))})
         profile = snapshot["schema"].get("bagit_profile", {})
         tags = dart3_bag_info(tags, profile, payload_bytes)
         validate_profile(tags, profile)
@@ -430,18 +480,22 @@ def build(request):
             # Match DART3 TagDefinition.ToFormattedString after input validation.
             tags = {name: re.sub(r"[\t\n\f\r ]+", " ", str(value)).strip() for name, value in tags.items()}
         bag_info[name] = "".join(k + ": " + str(v) + "\n" for k, v in tags.items())
-        (bag / "bag-info.txt").write_text(bag_info[name], encoding="utf-8")
-        (bag / "tagmanifest-sha256.txt").write_text("".join(digest(bag / f) + "  " + f + "\n" for f in ("bagit.txt", "bag-info.txt", "manifest-sha256.txt")), encoding="utf-8")
+        tag_files = {"bagit.txt": b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n",
+                     "bag-info.txt": bag_info[name].encode("utf-8"), "manifest-sha256.txt": manifest}
+        tag_files["tagmanifest-sha256.txt"] = "".join(hashlib.sha256(tag_files[f]).hexdigest() + "  " + f + "\n"
+                                                   for f in ("bagit.txt", "bag-info.txt", "manifest-sha256.txt")).encode("utf-8")
         archive = output / (name + ".tar")
         with tarfile.open(archive, "x", format=tarfile.PAX_FORMAT) as tar:
-            tar.add(bag, arcname=name, recursive=True)
+            tar.addfile(tar_member(name, directory=True))
+            for relative, content in sorted({**metadata, **tag_files}.items()):
+                tar.addfile(tar_member(name + "/" + relative, len(content)), io.BytesIO(content))
+            for item in items:
+                add_original_to_tar(tar, name, sources[item["key"]], item)
         # Verify the serialized archive, not merely the pre-serialization folder.
-        verify_archive(archive)
+        verified = verify_archive(archive, expected_snapshot=snapshot)
         if archive.stat().st_size > limit:
             raise ValueError("Serialized bag exceeds the configured part size; reduce the target or increase its limit")
-        parts.append({"bag_id": name, "filename": archive.name, "size": archive.stat().st_size, "sha256": digest(archive)})
-        shutil.rmtree(bag)
-    shutil.rmtree(stage)
+        parts.append({"bag_id": name, "filename": archive.name, "size": archive.stat().st_size, "sha256": verified["sha256"]})
     return {"snapshot": snapshot, "parts": parts, "bag_info": bag_info, "changed": True}
 
 
@@ -455,7 +509,7 @@ def manifest_entries(content):
     return result
 
 
-def verify_archive(path):
+def verify_archive(path, expected_snapshot=None):
     """Reject unsafe/duplicate members and verify complete payload/tag coverage."""
     with tarfile.open(path, "r:*") as tar:
         members = {}
@@ -473,10 +527,12 @@ def verify_archive(path):
             if p.parts[0] != root or member.name in members:
                 raise ValueError("Multiple bag roots or duplicate tar members")
             members[member.name] = member
-        def read(relative):
+        def read(relative, limit=TAG_READ_LIMIT):
             member = members.get(root + "/" + relative)
-            if not member or not member.isfile() or member.size > 512 * 1024 * 1024:
-                raise ValueError("Missing or oversized bag metadata")
+            if not member or not member.isfile():
+                raise ValueError("Missing bag metadata file: " + relative)
+            if limit is not None and member.size > limit:
+                raise ValueError("Bag metadata exceeds the tag-file read limit: " + relative)
             return tar.extractfile(member).read()
         if read("bagit.txt") != b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n":
             raise ValueError("Unsupported BagIt declaration")
@@ -496,7 +552,16 @@ def verify_archive(path):
                     sha.update(block)
             if sha.hexdigest() != expected_digest:
                 raise ValueError("Bag checksum validation failed")
-        snapshot = json.loads(read("data/metadata/snapshot.json"))
+        if expected_snapshot is not None:
+            # Packaging already holds the snapshot. Prove it matches the verified
+            # serialized payload instead of parsing a second potentially huge copy.
+            if payload.get("data/metadata/snapshot.json") != encoded_digest(expected_snapshot):
+                raise ValueError("Serialized recovery snapshot differs from the captured snapshot")
+            snapshot = expected_snapshot
+        else:
+            # Recovery snapshots grow with collection size; the small tag-file
+            # limit must not reject a legitimate, checksummed catalogue export.
+            snapshot = json.loads(read("data/metadata/snapshot.json", limit=None))
         if snapshot.get("format") != FORMAT or snapshot.get("fingerprint") != fingerprint(snapshot):
             raise ValueError("Invalid preservation snapshot")
         bag_info = dict(line.split(": ", 1) for line in read("bag-info.txt").decode("utf-8").splitlines())

@@ -138,6 +138,8 @@ try {
 	check($built['metadata']['External-Description'] === $submittedDescription,'Queued metadata retains the complete description beyond 2000 bytes');
 	check($built['metadata']['Internal-Sender-Description'] === $submittedInternalDescription,'Queued metadata retains the separately reviewed internal description');
 	check(count($built['result']['parts']) === 1 && $built['result']['files'] === 3,'Completed local package recorded');
+	check(!is_file($store->directory($first['id']).'/request.json') && !is_file($store->directory($first['id']).'/worker-result.json'),
+		'A completed package keeps one baseline, without duplicate request or worker-output metadata');
 	$saved = json_decode(file_get_contents($store->directory($first['id']).'/result.json'),true,512,JSON_THROW_ON_ERROR);
 	check($saved['parts'][0]['filename'] === 'EXAMPLE_C1_001.tar','PHP-to-Python packaging omits the part suffix for a single bag');
 	check($built['result']['bag_info'] === $saved['bag_info'] && strpos($built['result']['bag_info']['EXAMPLE_C1_001'],
@@ -162,8 +164,6 @@ try {
 	$supplement = $service->enqueue(1,'supplemental',$user,[]); check($service->run($supplement['id'])['status'] === 'built','Metadata supplement completes');
 	check(count($store->get($supplement['id'])['result']['recovery_chain']) === 2,'Recovery roadmap includes supplement');
 	fails(function() use ($service,$user,$first) { $service->confirm($first['id'],$user,'synthetic node receipt'); },'uploaded deposit');
-	$store->update($first['id'],['status' => 'uploaded']); $service->confirm($first['id'],$user,'synthetic node receipt');
-	check($store->get($first['id'])['status'] === 'confirmed','Preservation requires separate explicit confirmation');
 	$store->update($first['id'],['status' => 'failed']); $service->retry($first['id'],$user);
 	check($service->run($first['id'])['status'] === 'built','Retry reuses immutable retained package');
 	$moved = $service->enqueue(99,'full',$user,[]); $catalogue->data['ca_collections'][99]['parent_id'] = 1;
@@ -173,6 +173,24 @@ try {
 	fails(function() use ($service,$first,$user) { $service->retry($first['id'],$user); },'Only top-level archival collections');
 	check($store->get($first['id'])['status'] === 'failed','Ineligible retries do not mutate their recorded status');
 	$catalogue->data['ca_collections'][1]['parent_id'] = null; $service->retry($first['id'],$user); $service->run($first['id']);
+	$firstDirectory = $store->directory($first['id']); $baselineDigest = hash_file('sha256',$firstDirectory.'/result.json');
+	$store->update($supplement['id'],['status' => 'uploaded']);
+	fails(function() use ($service,$user,$supplement) { $service->confirm($supplement['id'],$user); },'Confirm the preceding deposit');
+	check($store->get($supplement['id'])['status'] === 'uploaded' && count(glob($store->directory($supplement['id']).'/*.tar')) === 1,
+		'Unconfirmed parent dependencies prevent confirmation and local archive removal');
+	ca_users::$deny = true; fails(function() use ($service,$user,$first) { $service->confirm($first['id'],$user); },'permission'); ca_users::$deny = false;
+	check(count(glob($firstDirectory.'/*.tar')) === 1,'Unauthorized confirmation cannot remove local files');
+	$store->update($first['id'],['status' => 'uploaded']); $service->confirm($first['id'],$user);
+	$confirmed = $store->get($first['id']);
+	check($confirmed['status'] === 'confirmed' && $confirmed['confirmation']['user_id'] === 1 && !empty($confirmed['confirmation']['recorded_at'])
+		&& !isset($confirmed['confirmation']['reference']),'One confirmation records status, operator and timestamp without requiring reference text');
+	check(!glob($firstDirectory.'/*.tar') && hash_file('sha256',$firstDirectory.'/result.json') === $baselineDigest
+		&& $confirmed['result'] === $built['result'],'Confirmation deletes tar files while preserving baseline, checksums, roadmap and bag-info');
+	$originalConfirmation = $confirmed['confirmation']; $service->confirm($first['id'],new ca_users(2));
+	$repeated = $store->get($first['id'])['confirmation'];
+	check($repeated['user_id'] === $originalConfirmation['user_id'] && $repeated['recorded_at'] === $originalConfirmation['recorded_at'],
+		'Repeated confirmation or cleanup cannot replace the original confirmation audit');
+	$store->update($supplement['id'],['status' => 'uploaded']);
 	$queued = $service->enqueue(1,'full',$user,[]); ca_users::$deny = true;
 	check($service->run($queued['id'])['status'] === 'failed','Worker must recheck requester permission'); ca_users::$deny = false;
 	$capturedInvalid = false;
@@ -185,6 +203,23 @@ try {
 	$invalidJob = $invalidService->enqueue(1,'full',$user,[]);
 	check($invalidService->run($invalidJob['id'])['status'] === 'failed' && !$capturedInvalid,'An invalid part limit must fail before catalogue capture and original-file staging');
 	check(strpos($store->get($invalidJob['id'])['error'],'positive whole number of bytes') !== false && !is_file($store->directory($invalidJob['id']).'/request.json'),'Invalid-limit failures must be actionable and write no metadata request');
+	$protected = $root.'/protected-original.tar'; file_put_contents($protected,'Synthetic protected original');
+	$unsafeCleanup = $store->create(99,'full',$config->target(),1,[]);
+	$store->update($unsafeCleanup['id'],['status' => 'uploaded','result' => ['parts' => [['filename' => '../protected-original.tar']]]]);
+	fails(function() use ($service,$user,$unsafeCleanup) { $service->confirm($unsafeCleanup['id'],$user); },'Preservation is confirmed, but local file cleanup failed');
+	check(file_get_contents($protected) === 'Synthetic protected original' && $store->get($unsafeCleanup['id'])['status'] === 'confirmed',
+		'Invalid cleanup paths cannot delete outside the job or undo a recorded confirmation');
+	$unsafeConfirmation = $store->get($unsafeCleanup['id'])['confirmation'];
+	$unsafeDirectory = $store->directory($unsafeCleanup['id'],true); symlink($protected,$unsafeDirectory.'/synthetic.tar');
+	$store->update($unsafeCleanup['id'],['result' => ['parts' => [['filename' => 'synthetic.tar']]]]);
+	fails(function() use ($service,$user,$unsafeCleanup) { $service->confirm($unsafeCleanup['id'],$user); },'local file cleanup failed');
+	check(is_file($protected) && is_link($unsafeDirectory.'/synthetic.tar'),'Cleanup refuses archive symlinks');
+	unlink($unsafeDirectory.'/synthetic.tar'); file_put_contents($unsafeDirectory.'/synthetic.tar','Synthetic retained package');
+	$service->confirm($unsafeCleanup['id'],new ca_users(2));
+	$cleaned = $store->get($unsafeCleanup['id'])['confirmation'];
+	check(!is_file($unsafeDirectory.'/synthetic.tar') && !isset($cleaned['local_archive_cleanup_error'])
+		&& $cleaned['user_id'] === $unsafeConfirmation['user_id'] && $cleaned['recorded_at'] === $unsafeConfirmation['recorded_at'],
+		'Cleanup can be retried after confirmation without changing its original audit');
 
 	require_once __DIR__.'/../controllers/PreservationController.php';
 	$request = new SyntheticRequest($user); $response = new SyntheticResponse();
@@ -215,6 +250,18 @@ try {
 		&& strpos($internalField->textContent,'Provenance: Example provenance.') !== false,'Editor exposes the complete, editable internal narrative without truncation');
 	$bagInfo = (new DOMXPath($dom))->query('//textarea[starts-with(@id,"mdpn-bag-info-")]');
 	check($bagInfo->length > 0,'Completed bags expose their bag-info.txt in history');
+	$confirmForms = (new DOMXPath($dom))->query('//form[contains(@action,"/Confirm")]');
+	check($confirmForms->length > 0 && (new DOMXPath($dom))->query('//input[@name="reference"]')->length === 0
+		&& strpos($html,'Confirm preservation') !== false,'Confirmation uses a button without a reference field');
+	$request->parameters = ['collection_id' => 1,'job_id' => $supplement['id']];
+	$request->method = 'GET'; fails(function() use ($controller) { $controller->Confirm(); },'valid form submission');
+	$request->method = 'POST'; $request->csrf = false; fails(function() use ($controller) { $controller->Confirm(); },'valid form submission');
+	$request->csrf = true; $controller->Confirm();
+	check($store->get($supplement['id'])['status'] === 'confirmed' && !glob($store->directory($supplement['id']).'/*.tar'),
+		'The CSRF-protected confirmation button records preservation and removes the local bag');
+	$request->parameters = ['collection_id' => 1]; ob_start(); $controller->Index(); $withoutArchives = ob_get_clean();
+	check(strpos($withoutArchives,'Local bag not retained') !== false && strpos($withoutArchives,'/Preservation/Download') === false
+		&& strpos($withoutArchives,'View bag-info.txt') !== false,'Removed archives have no download links while metadata stays visible');
 	foreach ($bagInfo as $field) {
 		check($field->hasAttribute('readonly') && !$field->hasAttribute('name'),'Bag-info text is selectable and read-only, without becoming form input');
 		$details = $field->parentNode->parentNode;

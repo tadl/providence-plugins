@@ -62,7 +62,7 @@ $form = function($action,$name) use ($id) {
 <p><?= $escape(_t('Recovery requires one full deposit and %1 supplements.',count($job['result']['recovery_chain'])-1)) ?> <?= caNavLink($this->request,_t('View recovery roadmap'),'','MDPNLOCKSSPreservation','Preservation','Roadmap',['collection_id' => $id,'job_id' => $job['id']]) ?></p>
 <?php endif; ?>
 <?php foreach ($job['result']['parts'] as $n => $part): ?>
-<p><?= caNavLink($this->request,$escape($part['filename']),'','MDPNLOCKSSPreservation','Preservation','Download',['collection_id' => $id,'job_id' => $job['id'],'part' => $n]) ?><br><small>SHA-256: <?= $escape($part['sha256']) ?></small></p>
+<p><?php if (!empty($job['local_archives'][$n])): ?><?= caNavLink($this->request,$escape($part['filename']),'','MDPNLOCKSSPreservation','Preservation','Download',['collection_id' => $id,'job_id' => $job['id'],'part' => $n]) ?><?php else: ?><?= $escape($part['filename']) ?> · <?= $escape($job['status'] === 'confirmed' ? _t('Local bag not retained') : _t('Local bag unavailable')) ?><?php endif; ?><br><small>SHA-256: <?= $escape($part['sha256']) ?></small></p>
 <?php if (isset($job['result']['bag_info'][$part['bag_id']])): $bagInfoId = 'mdpn-bag-info-'.$job['id'].'-'.$n; ?>
 <details><summary><?= $escape(_t('View bag-info.txt for %1',$part['filename'])) ?></summary>
 <p><label for="<?= $escape($bagInfoId) ?>"><?= $escape(_t('bag-info.txt (read-only)')) ?></label><br><textarea id="<?= $escape($bagInfoId) ?>" readonly rows="17" wrap="soft" style="width:100%;box-sizing:border-box;font-family:monospace"><?= $escape($job['result']['bag_info'][$part['bag_id']]) ?></textarea></p>
@@ -75,9 +75,12 @@ $form = function($action,$name) use ($id) {
 <?= $form('Retry','mdpnRetry'.$job['id']) ?><input type="hidden" name="job_id" value="<?= $escape($job['id']) ?>"><p><button type="submit"><?= $escape(_t('Retry transfer of retained package')) ?></button> <?= $escape(_t('(Available only if packaging completed.)')) ?></p></form>
 <?php endif; ?>
 <?php if ($job['status'] === 'uploaded' && $this->request->user->canDoAction('can_confirm_preservation')): ?>
-<?= $form('Confirm','mdpnConfirm'.$job['id']) ?><input type="hidden" name="job_id" value="<?= $escape($job['id']) ?>"><p><label for="mdpn-reference-<?= $escape($job['id']) ?>"><?= $escape(_t('Confirmation reference: verified LOCKSS crawl / node evidence')) ?></label><br><input type="text" id="mdpn-reference-<?= $escape($job['id']) ?>" name="reference" required maxlength="2000"><button type="submit"><?= $escape(_t('Record preservation confirmation')) ?></button></p></form>
+<?= $form('Confirm','mdpnConfirm'.$job['id']) ?><input type="hidden" name="job_id" value="<?= $escape($job['id']) ?>"><p><button type="submit"><?= $escape(_t('Confirm preservation')) ?></button><br><small><?= $escape(_t('Confirms all parts are preserved in LOCKSS and removes their local tar files.')) ?></small></p></form>
 <?php endif; ?>
-<?php if ($job['confirmation']): ?><p><?= $escape(_t('Preservation confirmation recorded %1: %2',$job['confirmation']['recorded_at'],$job['confirmation']['reference'])) ?></p><?php endif; ?>
+<?php if ($job['confirmation']): ?><p><?= $escape(_t('Preservation confirmed %1.',$job['confirmation']['recorded_at'])) ?><?php if (!empty($job['confirmation']['reference'])): ?> <?= $escape($job['confirmation']['reference']) ?><?php endif; ?></p><?php endif; ?>
+<?php if ($job['status'] === 'confirmed' && (!empty($job['confirmation']['local_archive_cleanup_error']) || in_array(true,$job['local_archives'] ?? [],true)) && $this->request->user->canDoAction('can_confirm_preservation')): ?>
+<?= $form('Confirm','mdpnCleanup'.$job['id']) ?><input type="hidden" name="job_id" value="<?= $escape($job['id']) ?>"><p><?php if (!empty($job['confirmation']['local_archive_cleanup_error'])): ?><?= $escape(_t('Preservation is confirmed; local file cleanup needs to be retried.')) ?> <?php endif; ?><button type="submit"><?= $escape(_t('Remove local bag files')) ?></button></p></form>
+<?php endif; ?>
 </article>
 <?php endforeach; ?>
 </div>

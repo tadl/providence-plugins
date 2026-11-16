@@ -61,6 +61,10 @@ then arrange a receiving-service pilot with the preservation coordinator.
   and verify the serialized byte limit, repeated metadata and per-job Bag-Count.
 - Simulate missing/unreadable originals, source edits during capture, insufficient
   disk space, worker interruption, abandoned queue entries and partial failures.
+- Verify a later-part build failure leaves no generated archives, while a failed
+  transfer retains the completed package. Monitor disk usage to confirm no
+  duplicate working copy of the original file set is created. Validate and
+  recover a large metadata snapshot above the former 512 MiB read cap.
 - Reconstruct the latest state from a multipart full plus several supplements;
   verify removed files are absent and every current original matches SHA-256.
 - Import the reconstructed catalogue into another fresh CA installation using
@@ -83,6 +87,10 @@ then arrange a receiving-service pilot with the preservation coordinator.
   retries and refusal of a different existing final/partial archive.
 - For multipart jobs, fail a later part and verify the baseline does not
   advance. Reconcile parts already consumed by ingestion before retrying.
+- Confirm a completed deposit using the button without a text reference. Verify
+  all local tar parts disappear, download links are removed, and the baseline,
+  roadmap, checksums, bag-info text and confirmation audit remain usable. Retry a
+  simulated cleanup failure without changing the original confirmation.
 - Have node hosts crawl the new AUs. Record actual node/crawl evidence manually;
   a successful staging upload must remain labelled unconfirmed until then.
 - When using the MDPN profile, check bags against the DART3 metadata layout:

@@ -85,6 +85,83 @@ class PreservationTests(unittest.TestCase):
         self.assertNotIn("source_path", json.dumps(snapshot))
         self.assertFalse((output / "staging").exists())
 
+    def test_large_recovery_snapshot_is_not_subject_to_the_tag_read_limit(self):
+        self.snapshot["schema"]["synthetic_recovery_context"] = "x" * 16384
+        with patch.object(preservation, "TAG_READ_LIMIT", 2048):
+            full, output = self.build()
+            archive = self.archives(full, output)[0]
+            self.assertEqual(preservation.verify_archive(archive)["snapshot"], full["snapshot"])
+            restored = self.root / "large-snapshot-recovered"
+            preservation.recover([archive], full["snapshot"]["deposit_id"], restored)
+            self.assertEqual(json.loads((restored / "catalogue-snapshot.json").read_text()), full["snapshot"])
+        with patch.object(preservation, "TAG_READ_LIMIT", 64):
+            with self.assertRaisesRegex(ValueError, "tag-file read limit: manifest-sha256.txt"):
+                preservation.verify_archive(archive)
+
+    def test_known_snapshot_verification_still_checks_serialized_snapshot_identity(self):
+        full, output = self.build()
+        wrong = copy.deepcopy(full["snapshot"])
+        wrong["records"]["ca_collections"]["12"]["row"]["idno"] = "Different captured value"
+        with self.assertRaisesRegex(ValueError, "Serialized recovery snapshot differs"):
+            preservation.verify_archive(self.archives(full, output)[0], expected_snapshot=wrong)
+
+    def test_streaming_digests_match_the_existing_snapshot_format(self):
+        for value in ({"unicode": "A café", "binary": {"$base64": "AAE="}, "numbers": [0, 1.5, None]}, self.snapshot):
+            self.assertEqual(preservation.encoded_digest(value), hashlib.sha256(preservation.encoded(value)).hexdigest())
+
+    def test_archive_space_does_not_require_a_second_copy_of_originals(self):
+        self.snapshot["files"] = [self.original("1", b"a" * 6_000_000)]
+        class AvailableSpace:
+            free = 24_000_000
+        with patch.object(preservation.shutil, "disk_usage", return_value=AvailableSpace()):
+            full, output = self.build(limit=10_000_000)
+        self.assertEqual([p.name for p in output.iterdir()], [full["parts"][0]["filename"]])
+        self.assert_independently_valid(self.archives(full, output)[0])
+
+    def test_failed_later_part_removes_generated_archives_and_preserves_diagnostics(self):
+        self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
+        native_verify = preservation.verify_archive
+        calls = 0
+        def fail_later(path, **options):
+            nonlocal calls
+            calls += 1
+            (Path(path).parent.parent / "diagnostic.log").write_text("Synthetic build diagnostic")
+            if calls == 2:
+                raise ValueError("Synthetic later-part failure")
+            return native_verify(path, **options)
+        with patch.object(preservation, "verify_archive", side_effect=fail_later):
+            with self.assertRaisesRegex(ValueError, "Synthetic later-part failure"):
+                self.build(limit=1_300_000)
+        self.assertEqual(calls, 2)
+        output = self.root / ("job" + str(self.counter))
+        self.assertEqual([p.name for p in output.iterdir()], ["diagnostic.log"])
+        for original in self.snapshot["files"]:
+            self.assertTrue(Path(original["source_path"]).is_file())
+
+    def test_archive_publication_never_overwrites_an_existing_file(self):
+        native_link = preservation.os.link
+        def collision(source, destination):
+            Path(destination).write_bytes(b"preexisting archive")
+            return native_link(source, destination)
+        with patch.object(preservation.os, "link", side_effect=collision):
+            with self.assertRaises(FileExistsError):
+                self.build()
+        output = self.root / ("job" + str(self.counter))
+        self.assertEqual(len(list(output.iterdir())), 1)
+        self.assertEqual(next(output.iterdir()).read_bytes(), b"preexisting archive")
+
+    def test_source_change_between_inventory_and_archive_is_rejected_and_cleaned_up(self):
+        original = self.original("1", b"before")
+        self.snapshot["files"] = [original]
+        native_add = preservation.add_original_to_tar
+        def changed_original(*args):
+            Path(original["source_path"]).write_bytes(b"after!")
+            return native_add(*args)
+        with patch.object(preservation, "add_original_to_tar", side_effect=changed_original):
+            with self.assertRaisesRegex(ValueError, "checksum validation failed"):
+                self.build()
+        self.assertEqual(list((self.root / ("job" + str(self.counter))).iterdir()), [])
+
     def test_compact_names_use_collection_revision_and_part_numbers(self):
         self.mdpn_profile()
         self.snapshot["files"] = [self.original("1", b"a" * 900_000), self.original("2", b"b" * 900_000)]
@@ -462,6 +539,38 @@ class PreservationTests(unittest.TestCase):
                 unchanged, _ = self.build(update, "supplemental", full)
                 self.assertFalse(unchanged["parts"])
 
+    def test_root_sibling_sort_order_is_context_but_internal_arrangement_is_content(self):
+        self.snapshot["records"]["ca_collections"]["12"]["row"].update({"rank": 40, "parent_id": 9})
+        self.snapshot["records"]["ca_collections"]["13"] = {
+            "row": {"collection_id": 13, "parent_id": 12, "rank": 1}, "labels": [], "attributes": [], "acl": []}
+        self.snapshot["records"]["ca_objects"]["1"]["row"]["rank"] = 1
+        full, _ = self.build()
+        baseline = self.root / "baseline.json"
+        baseline.write_bytes(preservation.encoded(full))
+        for context in ("root_rank", "child_rank", "object_rank", "relationship_rank", "parent"):
+            with self.subTest(context=context):
+                update = copy.deepcopy(self.snapshot)
+                if context == "root_rank":
+                    update["records"]["ca_collections"]["12"]["row"]["rank"] = 42
+                elif context == "child_rank":
+                    update["records"]["ca_collections"]["13"]["row"]["rank"] = 2
+                elif context == "object_rank":
+                    update["records"]["ca_objects"]["1"]["row"]["rank"] = 2
+                elif context == "relationship_rank":
+                    update["relationships"]["ca_objects_x_collections"]["1"]["row"]["rank"] = 2
+                else:
+                    update["records"]["ca_collections"]["12"]["row"]["parent_id"] = 10
+                checked = preservation.compare_report({"snapshot": update, "baselines": {full["snapshot"]["deposit_id"]: str(baseline)}})["comparisons"][full["snapshot"]["deposit_id"]]
+                self.assertEqual(checked["current"], context == "root_rank")
+                scan, _ = self.build(update, "scan", full)
+                self.assertEqual(scan["changed"], context != "root_rank")
+                if context == "root_rank":
+                    self.assertTrue(checked["recovery_context_changed"])
+                    self.assertEqual(checked["changes"], {})
+                    supplement, _ = self.build(update, "supplemental", full)
+                    self.assertEqual(supplement["parts"], [])
+        self.assertEqual(full["snapshot"]["records"]["ca_collections"]["12"]["row"]["rank"], 40)
+
     def test_used_metadata_definitions_and_relationship_names_are_meaningful(self):
         self.meaning_fixture()
         full, _ = self.build()
@@ -597,7 +706,7 @@ class PreservationTests(unittest.TestCase):
         class FullDisk:
             free = 0
         with patch.object(preservation.shutil, "disk_usage", return_value=FullDisk()):
-            with self.assertRaisesRegex(ValueError, "Insufficient free staging space"):
+            with self.assertRaisesRegex(ValueError, "Insufficient free space for preservation archives"):
                 self.build()
 
     def test_used_definition_supplement_preserves_meaning_and_recovery(self):

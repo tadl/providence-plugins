@@ -149,6 +149,13 @@ The SQLite ledger is helpful for retrieval and confirmation history, but is not
 required for this offline reconstruction. Keep a trusted source copy of this
 script/documentation outside the running Providence server.
 
+After confirmation, the Providence server removes its local tar copies. The
+private job `result.json` remains as the operational baseline for change
+detection and incremental planning; its metadata also exists inside the bag.
+Retrieve the required bags from LOCKSS when carrying out recovery. Checksums,
+bag identities, lineage and the confirmation history remain in the ledger and
+roadmap even when the tar files are no longer stored locally.
+
 ## Reimport into Providence
 
 Do this in an isolated new installation first. The plugin does not yet ship an
@@ -189,10 +196,23 @@ needs. Their presence is not evidence that a fresh-CA round trip has passed.
 ## Snapshot consistency and change semantics
 
 The collector reads native rows in a repeatable-read, read-only transaction on
-a dedicated connection. File copies verify descriptor identity, size and
+a dedicated connection. Reading originals verifies descriptor identity, size and
 nanosecond modification/change times; original MD5 values recorded by CA are
 also checked when available. Those MD5 values are source sanity checks, not the
 preservation manifest algorithm. All preserved files receive SHA-256 hashes.
+
+Packaging reads originals directly into private temporary tar files after
+recording their checksums, checking file identity again during that read. It
+verifies the serialized payload against those recorded checksums before
+publishing any part. There is no second on-disk working copy of the originals.
+Handled build failures remove their uncompleted archives; completed packages
+are retained when transfer fails.
+
+The recovery snapshot is not subject to the 512 MiB tag-file read limit.
+Verification hashes payloads in chunks before parsing the snapshot. During
+packaging it can reuse the captured snapshot after proving its full serialized
+SHA-256 matches the archive, avoiding a second large parsed copy. Standalone
+verification and recovery still need memory to parse that complete snapshot.
 
 After packaging and validating the serialized archives, the service reloads
 requester permissions and captures metadata/file descriptors again. Changes
@@ -212,7 +232,9 @@ original identities/checksums and referenced definitions that give those values
 their meaning. The complete schema and related-authority records remain part of
 the integrity-protected recovery snapshot even when edits to them do not require
 another deposit. Source hierarchy indexes and view counters are retained there
-but excluded from freshness. A related person's new subject heading, editor or
+but excluded from freshness. The preservation root's sibling sort order is also
+excluded; internal series, object and relationship ordering remains significant.
+A related person's new subject heading, editor or
 validation setting, unused term or packaging-policy change cannot make collection
 preservation stale. A changed used field code/datatype, selected vocabulary term
 or relationship definition can. JSON can separately indicate recovery-context

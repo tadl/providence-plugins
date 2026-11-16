@@ -45,6 +45,13 @@ class PreservationController extends ActionController {
 		try {
 			$store = new \MDPNPreservation\Store($this->preservation_config);
 			$history = $store->history($id); $baseline = $store->baseline($id,$this->preservation_config->target());
+			foreach ($history as &$job) {
+				$job['local_archives'] = [];
+				foreach ($job['result']['parts'] ?? [] as $n => $part) {
+					$name = $part['filename'] ?? ''; $path = $store->directory($job['id']).'/'.$name;
+					$job['local_archives'][$n] = $name !== '' && basename($name) === $name && is_file($path) && !is_link($path);
+				}
+			} unset($job);
 		} catch (Throwable $e) { $error = $e instanceof \MDPNPreservation\Failure ? $e->getMessage() : _t('Preservation storage is unavailable. Ask an administrator to check configuration.'); }
 		$collection = new ca_collections($id);
 		$eligibility = ['eligible' => false,'organizational_unit' => false,'root_collection_id' => null,'outside_organizational_hierarchy' => false];
@@ -72,7 +79,7 @@ class PreservationController extends ActionController {
 	}
 	public function Confirm() {
 		$this->post(); $id = $this->collection(); $job = $this->job($id);
-		$this->service()->confirm($job['id'],$this->request->user,(string)$this->request->getParameter('reference',pString)); $this->back($id);
+		$this->service()->confirm($job['id'],$this->request->user); $this->back($id);
 	}
 	public function Download() {
 		$id = $this->collection(); $job = $this->job($id);

@@ -143,12 +143,19 @@ following workflow.
 6. Coordinate with the receiving service to check processing and arrange LOCKSS
    crawls of every new AU. A successful staging upload is not evidence of a
    completed crawl or distributed preservation.
-7. After checking the node evidence, an authorized operator records a
-   **Confirmation reference**. Include the AU identifiers, nodes checked,
-   successful crawl dates and a report reference or evidence URL. The plugin
-   records the reference, operator and recording time; it does not query nodes
-   or independently verify that evidence. Confirm a parent deposit before its
-   supplement.
+7. After checking that every part is preserved in LOCKSS, an authorized operator
+   selects **Confirm preservation**. This records the operator and time and
+   removes the deposit's local tar files. No text reference is required. The
+   catalogue snapshot, file inventory, checksums, bag-info text and recovery
+   roadmap remain available for reporting and future incremental deposits.
+   The plugin does not query nodes or independently verify preservation.
+   Confirm a parent deposit before its supplement.
+
+Confirmation is recorded before local files are removed. If removal fails, the
+deposit remains confirmed and **Remove local bag files** lets an authorized
+operator retry cleanup. That action preserves the original confirming operator
+and time. Older written confirmation references remain visible. There is no
+automatic copy to another storage service.
 
 Both description fields accept paragraphs. On submission, formatting is removed
 and paragraph breaks become spaces, so each occupies one physical line in
@@ -172,7 +179,7 @@ saved display copy; their original bag-info.txt remains inside the archive.
 | `unchanged` | A requested supplement found no changes; no bag was created or uploaded and the completed baseline is unchanged. |
 | `built` | Local archives were created and validated; they have not been submitted to a preservation service. |
 | `uploaded` | Every part reached staging; LOCKSS preservation has not been confirmed. |
-| `confirmed` | An authorized operator recorded preservation evidence and a reference. |
+| `confirmed` | An authorized operator confirmed LOCKSS preservation; local tar files are removed. |
 | `failed` | The operation did not complete; it cannot establish a supplemental baseline. |
 
 **Scan for changes without creating bags** compares current metadata and
@@ -195,6 +202,11 @@ or place, such as adding subject headings to that person's record. Those records
 remain in the full recovery snapshot and are updated in the next deposit, but
 do not by themselves justify a supplement. Generated hierarchy indexes and view
 counters are also excluded from freshness checks.
+
+The preservation root's sort order among neighboring collections is also
+excluded. Reordering a series, folder, object or relationship within the
+preserved hierarchy still requires attention. All sort-order values remain
+in the recovery snapshot.
 
 Definitions are significant only when needed to interpret values actually used
 by the collection's own records or direct relationships. Renaming an assigned
@@ -381,9 +393,15 @@ delivery. It supplies no institution identity or receiving-service credentials.
 - A private directory outside both the web root and the source repository,
   owned by the common web/CLI queue account (`www-data` in the server examples)
   with permissions `0700`.
-- Sufficient space for retained archives and new staging. Budget up to twice
-  the original file set plus repeated metadata for each active build. The
-  worker stages originals while determining which files an incremental deposit needs.
+- Sufficient space for retained archives, the new deposit's tar files, and
+  request/result metadata. Each part repeats the catalogue snapshot and CSVs.
+  Originals are checksummed and then read directly into the tar; no second
+  working copy of the original file set is stored. Incremental deposits store
+  only new or changed original bytes. The state filesystem must support hard
+  links for publishing verified archives without copying or overwriting files.
+- Enough memory to capture and serialize the collection's complete metadata.
+  Recovery snapshots can exceed 512 MiB and have no tag-file size cap. Large
+  collections require more memory for the native capture and metadata exports.
 - The native Providence task queue, processed by the CLI service account.
   Jobs continue after the browser closes.
 
@@ -690,8 +708,9 @@ of the receiving service. A partial multipart submission never advances the
 collection's successful baseline.
 
 MDPN supplies no automated preservation receipt. After arranging crawls of the
-new AUs and checking node evidence, an authorized operator can record a manual
-confirmation reference. A supplement can only be confirmed after its parent.
+new AUs and checking node evidence, an authorized operator selects **Confirm
+preservation**. The local tar files are then removed. A supplement can only be
+confirmed after its parent.
 Neither a successful upload nor local packaging claims LOCKSS replication.
 
 ### Permission and media-processing details
@@ -830,7 +849,19 @@ private log and rotation policy. Individual job diagnostics are in
 `state_directory/jobs/JOB_ID/`, including `php-worker-output.txt`,
 `php-worker-error.txt`, `worker-result.json` and `worker-error.txt`. Treat those
 files as private operational records. Review them when a job fails before
-resetting or retrying it.
+resetting or retrying it. A completed operation removes redundant requests,
+worker output and logs after saving its permanent `result.json` baseline.
+
+Builds use a private `.build-*` directory inside the job directory and publish
+archives only after every part has passed verification. A handled build failure
+removes its generated archives and working directory, retaining the request and
+diagnostics. Completed archives remain available when an SFTP transfer fails;
+the duplicated metadata request and worker output are no longer needed once
+`result.json` has been saved.
+An abrupt machine stop or forced process kill can leave an unfinished working
+directory; inspect the queue and collection lock before removing abandoned
+working files. Do not remove a completed job's `result.json` or archives needed
+for a transfer retry.
 
 ### Operations and development
 
@@ -854,12 +885,16 @@ state root remain readable and retryable in place; do not move them manually,
 because their saved requests contain absolute paths. Read-only reports support
 both layouts. Job directories and the `jobs/` parent must remain private (0700).
 
-Back up the **entire private state directory**, including `ledger.sqlite`, `jobs/`,
-any legacy job directories, `result.json` and request/diagnostic files, while no
-jobs are running. Metadata and originals there are private collection exports.
-Retained tar files accumulate until an operator reviews retention. Do not delete ledger
-or result files when reclaiming archive space. Credentials and normal complete
-application/database/media backups have separate backup requirements.
+Back up the **private operational state**, including `ledger.sqlite`, `jobs/`,
+any legacy job directories and their `result.json` files, while no jobs are
+running. These snapshots are the comparison baselines used to detect changes
+and plan supplements without retrieving earlier bags. Each preserved bag also
+contains its complete recovery metadata. Uploaded bags remain local until
+confirmation; local-only packages and packages awaiting transfer retry remain
+local as well. Confirmation removes local tar files without deleting the
+baseline or history. Do not delete ledger or result files when reclaiming
+archive space. Credentials and normal complete application/database/media
+backups have separate backup requirements.
 
 If a process/machine stops, inspect native queue/process state first. An
 administrator can mark an abandoned job failed when no worker holds its lock:
