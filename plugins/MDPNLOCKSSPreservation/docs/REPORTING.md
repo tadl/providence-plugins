@@ -7,6 +7,21 @@ account `www-data`:
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
+This displays **recorded deposit and confirmation states**. It reads the private
+ledger and current collection hierarchy/labels needed to identify eligible roots.
+It does not open recovery snapshots, export current record metadata or read
+original files. A recorded `confirmed` deposit is not a claim that the collection
+has remained unchanged since that deposit.
+
+To omit collections that have never had a deposit attempt at this destination:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --with-history
+```
+
+Failed, queued and running attempts remain visible. Scans alone do not count as
+deposit attempts. This filter does not mean "confirmed deposits only."
+
 The ID is illustrative: supply an active backend administrator who has
 `can_preserve_collections`. This is the Providence backend user, separate from
 the Unix account `www-data`; substitute the service account if your server uses
@@ -23,9 +38,9 @@ if the command or new role actions are missing after installation or an update.
 Routine reports do not require cache clearing. The report is read-only and takes
 **no `--apply` flag**. It opens SQLite in read-only/query-only
 mode and does not queue scans, create group IDs, build bags, write snapshots,
-transfer files, change confirmations, or access SFTP credentials. Current
-metadata travels to the comparison subprocess through stdin, never a temporary
-export file. Output goes to stdout; keep redirected reports private because
+transfer files, change confirmations, or access SFTP credentials. During an
+explicit verification, current metadata travels to the comparison subprocess
+through stdin, never a temporary export file. Output goes to stdout; keep redirected reports private because
 they contain collection titles and preservation history.
 
 In MDPN mode, freshness checks read the last validated policy cache without
@@ -43,8 +58,14 @@ reporting does not assert policy freshness.
 
 ## Freshness and coverage
 
-By default the command captures current native catalogue metadata and reads
-each original file for SHA-256. It compares both the latest complete deposit
+Content verification is opt-in:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --with-history --verify
+```
+
+Only `--verify` captures current native catalogue metadata and reads each
+original file for SHA-256. It compares both the latest complete deposit
 and the latest manually confirmed deposit for each preservation root, rather
 than trusting the collection's modification time or an earlier saved scan.
 Freshness compares collection, object and representation records/attachments,
@@ -109,7 +130,7 @@ preservation of an undeposited parent. Historical deposits rooted at records
 that are now ineligible are retained and produce warnings, without creating
 individual report rows or supplying the parent's baseline.
 
-When a saved snapshot cannot be read, its historical child membership is
+During verification, when a saved snapshot cannot be read, its historical child membership is
 unknown, including children that may have moved elsewhere. The affected root
 has an error, and collections without other evidence require review rather
 than being falsely labelled never deposited. Deleted/missing deposit roots
@@ -117,8 +138,14 @@ are also reported as warnings. These warnings make the command exit nonzero.
 
 ## Output and status meanings
 
-The text table shows the overall status, confirmed-preservation freshness,
-latest-deposit freshness, snapshot date and collection title.
+By default, the text table shows the overall recorded state, confirmed
+preservation, latest completed deposit's delivery state, snapshot date and
+collection title. A later failed or pending attempt appears in the overall
+state without hiding an earlier confirmation. Confirmed collections do not
+require attention merely because content has not been rechecked.
+
+With `--verify`, the preservation and latest-deposit columns show current-content
+freshness instead of recorded delivery states.
 JSON includes the exact job IDs, UTC timestamps, coverage,
 delivery state, revision, part and supplement counts, change counts in the
 checked deposit root, latest attempt, attention flags and totals by status.
@@ -128,14 +155,15 @@ interpreting historical deposits and recovery lineage.
 
 | Overall status | Meaning |
 | --- | --- |
-| `current` | A confirmed deposit matches the eligible root's complete current hierarchy |
-| `out_of_date` | A directly checked collection differs from its latest confirmed or complete deposit |
+| `confirmed` | Recorded LOCKSS confirmation; current content has not been rechecked |
+| `queued` / `running` | The latest deposit attempt is pending or in progress; earlier confirmations remain visible |
+| `current` | With `--verify`, a confirmed deposit matches the root's complete current hierarchy |
+| `out_of_date` | With `--verify`, current content differs from a confirmed or complete deposit |
 | `deposit_failed` | The latest deposit attempt failed; any earlier completed or confirmed deposit retains its own freshness status |
-| `awaiting_confirmation` | Current content has been uploaded; matching preservation has not been confirmed |
-| `local_only` | A local package matches, without confirmed remote preservation |
+| `awaiting_confirmation` | The latest complete deposit was uploaded but has not been confirmed in LOCKSS |
+| `local_only` | The latest complete deposit was built locally without a remote upload |
 | `never_deposited` | No successful direct or covering deposit exists at this destination |
 | `needs_review` | Historical coverage is incomplete or cannot establish the current root's state |
-| `not_checked` | History was read without a current-content check |
 | `error` | Catalogue, original-file or preservation-state verification failed |
 
 The preservation and latest-deposit columns are deliberately separate. A
@@ -151,24 +179,52 @@ For machine-readable JSON, suppress the native caUtils heading:
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --format=json --quiet
 ```
 
-For a quick history inventory without hashing originals or exporting current
-record metadata:
+`--history-only` remains available as an explicit alias for the default recorded
+state inventory:
 
 ```sh
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --history-only
 ```
 
-History-only mode can show `deposit_failed` from recorded job history, but never
-labels freshness `current` or `out_of_date`. Its recorded
-confirmations and delivery states remain available, but freshness is explicitly
-`not_checked`. Collections with no history can still be identified, unless
-coverage information is damaged. This mode does not require a working Python
-binary or readable originals.
+Recorded-state reports never label freshness `current` or `out_of_date`.
+JSON retains `freshness_check: "history_only"`, `freshness: "not_checked"` and
+null content-check timestamps while reporting actual confirmation/delivery
+states. They require neither a Python binary, an MDPN policy cache nor readable
+recovery snapshots/originals. Do not combine `--history-only` with `--verify`.
+
+## Arguments
+
+| Argument | Meaning |
+| --- | --- |
+| No extra arguments | Show recorded states for all eligible roots at the configured destination |
+| `--with-history` | Only list roots with at least one deposit attempt; include failures and pending attempts, exclude scan-only histories |
+| `--verify` | Check current metadata and original-file SHA-256 values; potentially expensive |
+| `--history-only` | Explicitly select the default recorded-state behavior; conflicts with `--verify` |
+| `--format=text`, `-f=text` | Human-readable table; the default |
+| `--format=json`, `-f=json` | Structured report; combine with `--quiet` |
+| `--quiet` | Native caUtils option suppressing its banner, not the report |
+| `--fail-on-attention` | Also exit nonzero when a listed collection needs attention |
+| `--user-id=N`, `-u=N` | Active Providence backend administrator used for authorization |
+| `help` | Positional native help request; for example, append `help` after the command |
+
+The JSON `with_history_only` flag records whether the history filter was used.
+Summary collection/status/attention counts apply to listed roots. Organizational
+and subordinate counts still describe the hierarchy. Warnings about historical
+deposits remain visible; the filter omits placement warnings for records with
+no deposit attempts.
+
+The native caUtils parser also accepts `--hostname=HOST` and `--setup=PATH` for
+installation selection. These are administrator options and are normally
+unnecessary when running from the installed application root. Although the
+parser exposes `--disable-item-level-access-control`, this preservation command
+rejects disabled ACLs. There is no `--apply` option for this read-only report.
 
 Successful reporting returns exit status 0 even when it finds collections to
 preserve. Errors or warnings return nonzero. Add `--fail-on-attention` to also
-return nonzero for any collection requiring action, including never-deposited,
-outdated, unconfirmed, local-only, review-needed or unchecked collections:
+return nonzero for any listed collection requiring action, including
+never-deposited, outdated, unconfirmed, local-only, failed, pending or
+review-needed collections. Recorded `confirmed` state does not require attention
+solely because no content check was requested:
 
 ```sh
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --fail-on-attention
@@ -179,14 +235,16 @@ command can be used by an operator's existing maintenance/reporting workflow.
 
 ## Cost and limits
 
-Fresh verification reads every original in each checked preservation hierarchy.
+The default recorded-state report avoids the large recovery snapshots and all
+original-file reads. Explicit `--verify` reads every original in each checked
+preservation hierarchy.
 Latest and confirmed baselines for the same root share one file-hashing pass.
 Overlapping independently deposited roots can read shared originals more than
 once. Large repositories should run full checks during an appropriate I/O
 window; history-only mode is faster but cannot establish freshness.
 
-Snapshots are still materialized in memory, as in the packaging pilot. The
-whole report is not one instantaneous database/filesystem snapshot: each root
-has its own checked-at timestamp. The report does not persist a new scan or
+Verification snapshots are still materialized in memory, as in the packaging
+pilot. The whole verification report is not one instantaneous database/filesystem
+snapshot: each root has its own checked-at timestamp. The report does not persist a new scan or
 update the collection editor's saved scan date. Changing destination identity
 starts a separate coverage history; local-test bags cannot satisfy SFTP coverage.

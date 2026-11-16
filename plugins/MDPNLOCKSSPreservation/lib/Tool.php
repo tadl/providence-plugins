@@ -14,7 +14,9 @@ final class Tool {
 				require_once __DIR__.'/Report.php'; require_once __CA_MODELS_DIR__.'/ca_users.php';
 				$format = (string)(($settings['format'] ?? '') ?: 'text');
 				if (!in_array($format,['text','json'],true)) { throw new Failure('Report format must be text or json.'); }
-				$report = (new Report($this->config,new Store($this->config,false,true),$this->root,$this->catalogueFactory))->run(new \ca_users((int)($settings['user-id'] ?? 0)),!empty($settings['history-only']));
+				if (!empty($settings['verify']) && !empty($settings['history-only'])) { throw new Failure('Choose --verify or --history-only, not both.'); }
+				$report = (new Report($this->config,new Store($this->config,false,true),$this->root,$this->catalogueFactory))->run(
+					new \ca_users((int)($settings['user-id'] ?? 0)),empty($settings['verify']),!empty($settings['with-history']));
 				print Report::render($report,$format);
 				return !$report['summary']['errors'] && !$report['warnings'] && (empty($settings['fail-on-attention']) || !$report['summary']['attention_required']);
 			}

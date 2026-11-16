@@ -3,7 +3,7 @@
 namespace MDPNPreservation;
 require_once __DIR__.'/Service.php';
 
-/** Read-only, destination-specific maintenance report; never reuses stale scans. */
+/** Recorded destination-specific state by default; content verification is opt-in. */
 final class Report {
 	private $config;
 	private $store;
@@ -13,7 +13,7 @@ final class Report {
 		$this->config = $config; $this->store = $store; $this->root = $root;
 		$this->catalogueFactory = $catalogueFactory ?: static function($user) { return new ProvidenceCatalogue($user); };
 	}
-	public function run($user, bool $historyOnly=false) : array {
+	public function run($user, bool $historyOnly=true, bool $withHistory=false) : array {
 		if ((defined('__CA_DISABLE_ACL__') && __CA_DISABLE_ACL__) || !$user || !$user->getPrimaryKey() || !$user->get('active')
 			|| !$user->canDoAction('is_administrator') || !$user->canDoAction('can_preserve_collections')) {
 			throw new Failure('The all-collection report requires an active backend administrator with preservation permission and native ACL checks enabled.');
@@ -27,7 +27,7 @@ final class Report {
 		}
 		$candidates = []; $warnings = []; $unknownCoverage = false;
 		foreach ($collections as $id => $collection) {
-			if ($collection['outside_organizational_hierarchy'] && !$collection['parent_id']) {
+			if ($collection['outside_organizational_hierarchy'] && !$collection['parent_id'] && (!$withHistory || isset($attempts[$id]))) {
 				$warnings[] = ['root_collection_id' => $id,'message' => 'An unparented collection is outside the configured organizational hierarchy and is not eligible for preservation.'];
 			}
 		}
@@ -41,6 +41,9 @@ final class Report {
 			$baselines = [];
 			foreach ($jobs as $job) {
 				$candidate = ['job' => $job,'coverage' => [$root],'freshness' => 'not_checked','changes' => null,'checked_at' => null,'error' => null,'recovery_context_changed' => false];
+				// A state inventory needs only the ledger, not the potentially very
+				// large recovery snapshot or any current collection/file capture.
+				if ($historyOnly) { $candidates[$job['id']] = $candidate; continue; }
 				try {
 					$path = $this->store->directory($job['id']).'/result.json';
 					if (!is_file($path) || is_link($path)) { throw new Failure('The saved preservation snapshot is missing.'); }
@@ -96,16 +99,21 @@ final class Report {
 			elseif (($preservation['freshness'] ?? null) === 'current') { $status = 'current'; }
 			elseif (($deposit['freshness'] ?? null) === 'current') { $status = $deposit['delivery_status'] === 'built' ? 'local_only' : 'awaiting_confirmation'; }
 			elseif (($preservation['freshness'] ?? null) === 'out_of_date' || ($deposit['freshness'] ?? null) === 'out_of_date') { $status = 'out_of_date'; }
-			elseif ($deposit || $preservation) { $status = $historyOnly ? 'not_checked' : 'needs_review'; }
+			elseif ($historyOnly && $deposit) {
+				$status = ['confirmed' => 'confirmed','uploaded' => 'awaiting_confirmation','built' => 'local_only'][$deposit['delivery_status']];
+			}
+			elseif ($deposit || $preservation) { $status = 'needs_review'; }
 			$coverageIncomplete = $unknownCoverage && !$deposit && !$preservation;
 			if ($status === 'never_deposited' && $coverageIncomplete) { $status = 'needs_review'; }
 			$attempt = null;
 			foreach ($this->ancestors($collections,$id) as $ancestor) {
 				if (isset($attempts[$ancestor]) && (!$attempt || strcmp($attempts[$ancestor]['created_at'],$attempt['created_at']) > 0)) { $attempt = $attempts[$ancestor]; }
 			}
+			if ($withHistory && !$attempt && !$deposit && !$preservation) { continue; }
 			$attemptStatus = $attempt ? Service::attemptStatus($attempt) : null;
+			if ($historyOnly && in_array($attemptStatus,['queued','running'],true)) { $status = $attemptStatus; }
 			if ($status !== 'error' && $attemptStatus === 'failed') { $status = 'deposit_failed'; }
-			$requiresAttention = $status !== 'current';
+			$requiresAttention = !in_array($status,['current','confirmed'],true);
 			$row = ['collection_id' => $id,'parent_id' => $collection['parent_id'],'label' => $collection['label'],'status' => $status,
 				'attention_required' => (bool)$requiresAttention,'coverage_incomplete' => $coverageIncomplete,'preservation' => $preservation,'latest_deposit' => $deposit,
 				'latest_attempt' => $attempt ? ['job_id' => $attempt['id'],'root_collection_id' => (int)$attempt['collection_id'],'status' => $attemptStatus,
@@ -116,7 +124,8 @@ final class Report {
 		ksort($states);
 		return ['format' => 'mdpn-ca-preservation-report-1','started_at' => $started,'finished_at' => gmdate('c'),
 			'destination' => ['transport' => $this->config->get('transport','local'),'id' => $this->config->get('destination_id')],
-			'freshness_check' => $historyOnly ? 'history_only' : 'metadata_and_sha256','summary' => ['collections' => count($rows),'attention_required' => $attention,
+			'freshness_check' => $historyOnly ? 'history_only' : 'metadata_and_sha256','with_history_only' => $withHistory,
+			'summary' => ['collections' => count($rows),'attention_required' => $attention,
 				'errors' => $errors,'states' => $states,'organizational_units' => count(array_filter($collections,static function($row) { return $row['organizational_unit']; })),
 				'included_descendants' => count(array_filter($collections,static function($row) { return !$row['organizational_unit'] && !$row['eligible'] && !$row['outside_organizational_hierarchy']; })),
 				'outside_organizational_hierarchy' => count(array_filter($collections,static function($row) { return $row['outside_organizational_hierarchy']; }))],
@@ -190,17 +199,20 @@ final class Report {
 	public static function render(array $report, string $format) : string {
 		if ($format === 'json') { return Store::json($report)."\n"; }
 		if ($format !== 'text') { throw new Failure('Report format must be text or json.'); }
-		$out = 'Preservation status: '.$report['destination']['transport'].':'.$report['destination']['id'].' ('.$report['freshness_check'].")\n";
+		$recorded = $report['freshness_check'] === 'history_only';
+		$out = 'Preservation status: '.$report['destination']['transport'].':'.$report['destination']['id'].' ('.($recorded ? 'recorded state' : $report['freshness_check']).")\n";
 		$out .= sprintf("%-8s %-23s %-17s %-17s %-10s %s\n",'ID','STATUS','PRESERVATION','LATEST DEPOSIT','SNAPSHOT','COLLECTION');
 		foreach ($report['collections'] as $row) {
 			$coverage = $row['preservation'] ?: $row['latest_deposit'];
 			$label = preg_replace('/[\x00-\x1f\x7f]+/',' ',$row['label']);
-			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %s\n",$row['collection_id'],$row['status'],$row['preservation']['freshness'] ?? 'never_confirmed',
-				$row['latest_deposit']['freshness'] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$label);
+			$stateField = $recorded ? 'delivery_status' : 'freshness';
+			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %s\n",$row['collection_id'],$row['status'],$row['preservation'][$stateField] ?? 'never_confirmed',
+				$row['latest_deposit'][$stateField] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$label);
 			foreach (array_unique(array_filter([$row['preservation']['error'] ?? null,$row['latest_deposit']['error'] ?? null])) as $error) { $out .= '         '.$error."\n"; }
 		}
 		$out .= 'Collections: '.$report['summary']['collections'].'; attention required: '.$report['summary']['attention_required'].'; errors: '.$report['summary']['errors']."\n";
 		$out .= 'Organizational units excluded: '.$report['summary']['organizational_units'].'; subordinate records included with parents: '.$report['summary']['included_descendants']."\n";
+		if ($recorded) { $out .= "Content freshness not checked. Use --verify for a metadata and original-file checksum check.\n"; }
 		foreach ($report['warnings'] as $warning) { $out .= 'Warning for root #'.$warning['root_collection_id'].': '.$warning['message']."\n"; }
 		return $out;
 	}

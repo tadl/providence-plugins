@@ -360,12 +360,13 @@ restored.
 
 Regular review should distinguish **delivery**, **confirmed preservation** and
 **whether the deposited state is still current**. The read-only maintenance
-report lists eligible archival collection roots, including those whose
-preservation is out of date. Organizational units and subordinate records are
-excluded from individual rows; changes anywhere in a preserved hierarchy affect
-its root's freshness check.
-A full check reads current metadata and original-file hashes; a history-only
-check does not establish present-day freshness. See
+report lists recorded deposit and confirmation states for eligible archival
+collection roots. Organizational units and subordinate records are excluded
+from individual rows. Add `--with-history` to omit collections with no deposit
+attempts. The default report does not read recovery snapshots, export current
+metadata or hash originals. Explicit `--verify` checks current metadata and
+original-file hashes across each preserved hierarchy; recorded state alone
+does not establish present-day freshness. See
 [maintenance reporting](docs/REPORTING.md) for status definitions and administrator
 commands.
 
@@ -875,19 +876,22 @@ for a transfer retry.
 
 ### Operations and development
 
-For a read-only report across eligible collection roots, including outdated preservation:
+For a read-only report of recorded deposit and confirmation states across eligible collection roots:
 
 ```sh
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
-Use an authorized backend administrator ID. This checks fresh metadata and
-original SHA-256 across their complete hierarchies by default, and separates
-uploaded content from confirmed preservation. `--history-only` skips current
-content checks; `--format=json --quiet` provides machine-readable output;
-`--fail-on-attention` gives a nonzero exit when action is needed. It creates no
-jobs, bags or ledger writes. See [maintenance reporting](docs/REPORTING.md) for
-status meanings, privacy, organizational hierarchy, runtime cost and exit behavior.
+Use an authorized backend administrator ID. The default reads recorded history
+and separates uploaded deposits from confirmed preservation; it does not
+recheck collection content. Add `--with-history` to list only collections with
+deposit attempts, including failed or pending attempts. Add `--verify` only
+when a fresh metadata and original-file SHA-256 check is needed. The older
+`--history-only` flag explicitly selects the default behavior.
+`--format=json --quiet` provides machine-readable output; `--fail-on-attention`
+gives a nonzero exit when action is needed. It creates no jobs, bags or ledger
+writes. See [maintenance reporting](docs/REPORTING.md) for all arguments,
+status meanings, privacy, runtime cost and exit behavior.
 
 Job directories are stored under `state_directory/jobs/JOB_ID/`. The ledger,
 queue log and locks stay at the state root. Existing jobs directly under the
