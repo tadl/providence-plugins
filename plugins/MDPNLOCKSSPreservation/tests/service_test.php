@@ -246,12 +246,18 @@ try {
 	$store->saveChangeScan(1,$config->target(),['checked_at' => '2026-11-16T07:00:00+00:00','latest_deposit_id' => $uiBaseline['id'],'error' => null,
 		'checks' => [$uiBaseline['id'] => ['freshness' => 'out_of_date','changes' => ['catalogue_changes' => 2,'file_metadata_changes' => 0]]]]);
 	ob_start(); $controller->Index(); $html = ob_get_clean();
-	check(strpos($html,'2026-11-16T07:00:00+00:00') !== false && strpos($html,'Changes detected since the latest deposit.') !== false
+	check(strpos($html,'2026-11-16T07:00:00+00:00') !== false && strpos($html,'Collection has changed since the last preservation deposit.') !== false
 		&& strpos($html,'2 relevant catalogue changes') !== false,'Preservation page displays saved change flags and the last-check timestamp');
 	check(strpos($html,'<script>synthetic</script>') === false && strpos($html,'&lt;script&gt;synthetic&lt;/script&gt;') !== false,'Collection labels must be escaped');
 	check(strpos($html,'name="csrfToken"') !== false && strpos($html,'Local testing') !== false,'Forms include CSRF and distinguish local testing');
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');
 	$dom = new DOMDocument(); @$dom->loadHTML('<?xml encoding="UTF-8">'.$html);
+	$depositPanel = $dom->getElementById('mdpnCreateDepositPanel');
+	check($depositPanel && !$depositPanel->hasAttribute('open') && (new DOMXPath($dom))->query('//details[@id="mdpnCreateDepositPanel"]/summary/h2')->length === 1,
+		'The deposit form starts collapsed with its heading inside the native expandable summary');
+	check(strpos($html,'Return to collection') === false && strpos($html,'Refresh status') !== false
+		&& (new DOMXPath($dom))->query('//details[@id="mdpnCreateDepositPanel"]//*[@role="status"]')->length === 0,
+		'The redundant return link is removed and change status remains visible outside the collapsed form');
 	check($dom->getElementById('mdpn-contact_name')->getAttribute('value') === 'Example Staff'
 		&& $dom->getElementById('mdpn-contact_email')->getAttribute('value') === 'preservation@example.org','Configured contact defaults take precedence over account details');
 	$descriptionField = (new DOMXPath($dom))->query('//textarea[@id="mdpn-description"]')->item(0);

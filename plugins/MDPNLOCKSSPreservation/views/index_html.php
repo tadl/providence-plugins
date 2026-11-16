@@ -12,7 +12,7 @@ $form = function($action,$name) use ($id) {
 ?>
 <div class="mdpn-preservation" style="max-width:1100px;padding:1em">
 <h1><?= $escape(_t('Preservation: %1',$this->getVar('collection_label'))) ?></h1>
-<p><?= caNavLink($this->request,_t('Return to collection'),'','editor/collections','CollectionEditor','Edit',['collection_id' => $id]) ?> · <?= caNavLink($this->request,_t('Refresh status'),'','MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => $id]) ?></p>
+<p><?= caNavLink($this->request,_t('Refresh status'),'','MDPNLOCKSSPreservation','Preservation','Index',['collection_id' => $id]) ?></p>
 <?php if ($error): ?><p role="alert"><?= $escape($error) ?></p><?php endif; ?>
 <?php if (!$eligibility['eligible']): ?>
 <p role="status"><?= $escape($eligibility['organizational_unit'] ? _t('Organizational units group archival collections and cannot be preserved directly.') : ($eligibility['outside_organizational_hierarchy'] ? _t('Place this collection below a marked organizational unit before preservation.') : _t('This subordinate record is preserved with its top-level archival collection.'))) ?>
@@ -35,7 +35,9 @@ $form = function($action,$name) use ($id) {
 <p><?= $escape(_t('This scan predates the latest deposit. Its results will be refreshed by the next scheduled scan.')) ?></p>
 <?php elseif (!empty($changeScan['error'])): ?><p role="alert"><?= $escape($changeScan['error']) ?></p>
 <?php elseif ($baseline && isset($changeScan['checks'][$baseline['id']])): $check = $changeScan['checks'][$baseline['id']]; ?>
-<p role="status"><strong><?= $escape($check['freshness'] === 'current' ? _t('No changes detected since the latest deposit.') : _t('Changes detected since the latest deposit. A supplemental or new full deposit needs review.')) ?></strong></p>
+<?php if ($check['freshness'] === 'out_of_date'): ?>
+<div role="status" class="mdpn-preservation-changed" style="padding:.75em 1em;border-left:4px solid #b07800;background:#fff8e6"><strong><?= $escape(_t('Collection has changed since the last preservation deposit.')) ?></strong><br><?= $escape(_t('Review the changes before creating a supplemental or new full deposit.')) ?></div>
+<?php else: ?><p role="status"><strong><?= $escape(_t('No changes detected since the latest deposit.')) ?></strong></p><?php endif; ?>
 <p><?= $escape(_t('%1 relevant catalogue changes; %2 original-file metadata changes.',$check['changes']['catalogue_changes'],$check['changes']['file_metadata_changes'])) ?></p>
 <?php if (!empty($check['changes']['structure_changes'])): ?><p><?= $escape(_t('%1 hierarchy or membership changes.',$check['changes']['structure_changes'])) ?></p><?php endif; ?>
 <?php endif; ?>
@@ -49,7 +51,7 @@ $form = function($action,$name) use ($id) {
 <?php endif; ?>
 <?php break; endforeach; ?>
 <?php if (!$error && !$active && $eligibility['eligible']): ?>
-<h2><?= $escape(_t('Create a deposit')) ?></h2>
+<details id="mdpnCreateDepositPanel"><summary style="cursor:pointer"><h2 style="display:inline"><?= $escape(_t('Create a deposit')) ?></h2></summary>
 <?= $form('Submit','mdpnCreateDeposit') ?>
 <?php foreach (['source_organization' => _t('Source organization'),'contact_name' => _t('Contact name'),'contact_email' => _t('Contact email')] as $field => $label): ?>
 <p><label for="mdpn-<?= $escape($field) ?>"><?= $escape($label) ?> *</label><br><input id="mdpn-<?= $escape($field) ?>" name="<?= $escape($field) ?>" type="<?= $field === 'contact_email' ? 'email' : 'text' ?>" required maxlength="500" value="<?= $escape($field === 'source_organization' ? $config->get($field,'') : ($contacts[$field] ?? '')) ?>" style="width:100%;max-width:38em"></p>
@@ -60,6 +62,7 @@ $form = function($action,$name) use ($id) {
 <p><button type="submit"><?= $escape($config->get('transport','local') === 'local' ? _t('Create local preservation package') : _t('Create and send preservation deposit')) ?></button></p>
 </form>
 <?= $form('Submit','mdpnScanCollection') ?><input type="hidden" name="mode" value="scan"><p><button type="submit"><?= $escape(_t('Verify metadata and original checksums without creating bags')) ?></button></p></form>
+</details>
 <?php elseif ($active): ?><p role="status"><?= $escape(_t('A job is queued or running. Refresh this page to follow its progress; processing continues when you close the browser.')) ?></p><?php endif; ?>
 <h2><?= $escape(_t('History')) ?></h2>
 <?php if (!$history): ?><p><?= $escape(_t('No preservation jobs yet.')) ?></p><?php endif; ?>

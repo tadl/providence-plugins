@@ -120,7 +120,9 @@ following workflow.
 1. Open the collection editor and select **PRESERVATION**, after **LOG** in the
    left menu. Confirm that the selected collection and its hierarchy are the
    intended preservation scope.
-2. Review the organization, contact name, contact email and both descriptions.
+2. Review the saved change-scan status and check time. A changed collection has
+   a visible notice above the deposit controls. Expand the **Create a deposit**
+   heading, then review the organization, contact name, contact email and both descriptions.
    Contact fields use the signed-in Providence user's name and email unless
    installation-specific contact defaults are configured. Both remain editable;
    missing account details must be completed before sending.
