@@ -191,12 +191,12 @@ final class Report {
 		if ($format === 'json') { return Store::json($report)."\n"; }
 		if ($format !== 'text') { throw new Failure('Report format must be text or json.'); }
 		$out = 'Preservation status: '.$report['destination']['transport'].':'.$report['destination']['id'].' ('.$report['freshness_check'].")\n";
-		$out .= sprintf("%-8s %-23s %-17s %-17s %-10s %-8s %s\n",'ID','STATUS','PRESERVATION','LATEST DEPOSIT','SNAPSHOT','VIA ROOT','COLLECTION');
+		$out .= sprintf("%-8s %-23s %-17s %-17s %-10s %s\n",'ID','STATUS','PRESERVATION','LATEST DEPOSIT','SNAPSHOT','COLLECTION');
 		foreach ($report['collections'] as $row) {
 			$coverage = $row['preservation'] ?: $row['latest_deposit'];
 			$label = preg_replace('/[\x00-\x1f\x7f]+/',' ',$row['label']);
-			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %-8s %s\n",$row['collection_id'],$row['status'],$row['preservation']['freshness'] ?? 'never_confirmed',
-				$row['latest_deposit']['freshness'] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$coverage['root_collection_id'] ?? '-', $label);
+			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %s\n",$row['collection_id'],$row['status'],$row['preservation']['freshness'] ?? 'never_confirmed',
+				$row['latest_deposit']['freshness'] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$label);
 			foreach (array_unique(array_filter([$row['preservation']['error'] ?? null,$row['latest_deposit']['error'] ?? null])) as $error) { $out .= '         '.$error."\n"; }
 		}
 		$out .= 'Collections: '.$report['summary']['collections'].'; attention required: '.$report['summary']['attention_required'].'; errors: '.$report['summary']['errors']."\n";

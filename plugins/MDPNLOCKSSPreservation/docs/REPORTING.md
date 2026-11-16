@@ -118,10 +118,13 @@ are also reported as warnings. These warnings make the command exit nonzero.
 ## Output and status meanings
 
 The text table shows the overall status, confirmed-preservation freshness,
-latest-deposit freshness, snapshot date, covering root ID and collection title.
+latest-deposit freshness, snapshot date and collection title.
 JSON includes the exact job IDs, UTC timestamps, coverage,
 delivery state, revision, part and supplement counts, change counts in the
 checked deposit root, latest attempt, attention flags and totals by status.
+The text table lists preservation roots, so it omits the redundant `VIA ROOT`
+column. JSON retains covering root IDs and inherited-coverage information for
+interpreting historical deposits and recovery lineage.
 
 | Overall status | Meaning |
 | --- | --- |
