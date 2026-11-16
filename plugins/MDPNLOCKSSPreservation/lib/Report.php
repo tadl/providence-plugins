@@ -25,13 +25,15 @@ final class Report {
 			if (!isset($latest[$id]) && in_array($job['status'],['built','uploaded','confirmed'],true)) { $latest[$id] = $job; }
 			if (!isset($confirmed[$id]) && $job['status'] === 'confirmed') { $confirmed[$id] = $job; }
 		}
-		$candidates = []; $warnings = []; $unknownCoverage = false;
+		$candidates = []; $warnings = []; $unknownCoverage = false; $scans = [];
 		foreach ($collections as $id => $collection) {
 			if ($collection['outside_organizational_hierarchy'] && !$collection['parent_id'] && (!$withHistory || isset($attempts[$id]))) {
 				$warnings[] = ['root_collection_id' => $id,'message' => 'An unparented collection is outside the configured organizational hierarchy and is not eligible for preservation.'];
 			}
 		}
 		foreach (array_unique(array_merge(array_keys($latest),array_keys($confirmed))) as $root) {
+			$scan = $this->store->changeScan((int)$root,$this->config->target());
+			if ($scan && ($scan['latest_deposit_id'] ?? null) === ($latest[$root]['id'] ?? null)) { $scans[$root] = $scan; }
 			if (isset($collections[$root]) && !$collections[$root]['eligible']) {
 				$warnings[] = ['root_collection_id' => $root,'message' => 'A historical deposit is rooted at an organizational unit or subordinate record. Its history remains available, but it does not establish preservation of an eligible parent collection.'];
 				continue;
@@ -40,10 +42,18 @@ final class Report {
 			foreach ([$latest[$root] ?? null,$confirmed[$root] ?? null] as $job) { if ($job) { $jobs[$job['id']] = $job; } }
 			$baselines = [];
 			foreach ($jobs as $job) {
-				$candidate = ['job' => $job,'coverage' => [$root],'freshness' => 'not_checked','changes' => null,'checked_at' => null,'error' => null,'recovery_context_changed' => false];
+				$candidate = ['job' => $job,'coverage' => [$root],'freshness' => 'not_checked','changes' => null,'checked_at' => null,'error' => null,'recovery_context_changed' => false,'method' => null];
 				// A state inventory needs only the ledger, not the potentially very
 				// large recovery snapshot or any current collection/file capture.
-				if ($historyOnly) { $candidates[$job['id']] = $candidate; continue; }
+				if ($historyOnly) {
+					$saved = $scans[$root]['checks'][$job['id']] ?? null;
+					if (!empty($scans[$root]['error'])) {
+						$candidate = array_replace($candidate,['freshness' => 'error','error' => $scans[$root]['error'],'checked_at' => $scans[$root]['checked_at'],'method' => $scans[$root]['method']]);
+					} elseif ($saved && ($saved['fingerprint'] ?? null) === ($job['result']['fingerprint'] ?? null)) {
+						$candidate = array_replace($candidate,array_intersect_key($saved,array_fill_keys(['freshness','changes','checked_at','error','method'],true)));
+					}
+					$candidates[$job['id']] = $candidate; continue;
+				}
 				try {
 					$path = $this->store->directory($job['id']).'/result.json';
 					if (!is_file($path) || is_link($path)) { throw new Failure('The saved preservation snapshot is missing.'); }
@@ -70,12 +80,13 @@ final class Report {
 					$before = $this->capture($user,$root);
 					$comparison = $this->compare($before,$baselines);
 					$after = $this->capture($user,$root);
-					unset($before['captured_at'],$after['captured_at']);
+					unset($before['captured_at'],$after['captured_at'],$before['change_log_cursor'],$after['change_log_cursor']);
 					if (Store::json($before) !== Store::json($after)) { throw new Failure('The collection changed during the maintenance check. Run the report again.'); }
 					foreach ($comparison['comparisons'] as $jobId => $checked) {
 						$candidates[$jobId]['freshness'] = $checked['current'] ? 'current' : 'out_of_date';
 						$candidates[$jobId]['recovery_context_changed'] = !empty($checked['recovery_context_changed']);
 						$candidates[$jobId]['changes'] = $checked['changes']; $candidates[$jobId]['checked_at'] = $comparison['checked_at'];
+						$candidates[$jobId]['method'] = 'metadata_and_sha256';
 					}
 				} catch (\Throwable $e) {
 					foreach (array_keys($baselines) as $jobId) { $candidates[$jobId]['freshness'] = 'error'; $candidates[$jobId]['error'] = self::error($e); }
@@ -111,10 +122,11 @@ final class Report {
 			}
 			if ($withHistory && !$attempt && !$deposit && !$preservation) { continue; }
 			$attemptStatus = $attempt ? Service::attemptStatus($attempt) : null;
-			if ($historyOnly && in_array($attemptStatus,['queued','running'],true)) { $status = $attemptStatus; }
+			if ($historyOnly && $status !== 'error' && in_array($attemptStatus,['queued','running'],true)) { $status = $attemptStatus; }
 			if ($status !== 'error' && $attemptStatus === 'failed') { $status = 'deposit_failed'; }
 			$requiresAttention = !in_array($status,['current','confirmed'],true);
 			$row = ['collection_id' => $id,'parent_id' => $collection['parent_id'],'label' => $collection['label'],'status' => $status,
+				'last_checked_at' => $preservation['checked_at'] ?? $deposit['checked_at'] ?? ($this->store->changeScan((int)$id,$this->config->target())['checked_at'] ?? null),
 				'attention_required' => (bool)$requiresAttention,'coverage_incomplete' => $coverageIncomplete,'preservation' => $preservation,'latest_deposit' => $deposit,
 				'latest_attempt' => $attempt ? ['job_id' => $attempt['id'],'root_collection_id' => (int)$attempt['collection_id'],'status' => $attemptStatus,
 					'recorded_status' => $attempt['status'],'created_at' => $attempt['created_at']] : null];
@@ -185,7 +197,7 @@ final class Report {
 		$c = $candidates[0]; $job = $c['job'];
 		return ['job_id' => $job['id'],'root_collection_id' => (int)$job['collection_id'],'inherited' => $c['inherited'],
 			'recovery_context_changed' => $c['recovery_context_changed'],
-			'freshness' => $c['freshness'],'checked_at' => $c['checked_at'],'delivery_status' => $job['status'],'captured_at' => $job['result']['captured_at'] ?? null,
+			'freshness' => $c['freshness'],'checked_at' => $c['checked_at'],'check_method' => $c['method'],'delivery_status' => $job['status'],'captured_at' => $job['result']['captured_at'] ?? null,
 			'confirmed_at' => $job['confirmation']['recorded_at'] ?? null,'revision' => (int)$job['revision'],'mode' => $job['mode'],
 			'parts' => count($job['result']['parts'] ?? []),'supplements' => max(0,count($job['result']['recovery_chain'] ?? [])-1),
 			'changes_in_deposit_root' => $c['changes'],'error' => $c['error']];
@@ -201,18 +213,19 @@ final class Report {
 		if ($format !== 'text') { throw new Failure('Report format must be text or json.'); }
 		$recorded = $report['freshness_check'] === 'history_only';
 		$out = 'Preservation status: '.$report['destination']['transport'].':'.$report['destination']['id'].' ('.($recorded ? 'recorded state' : $report['freshness_check']).")\n";
-		$out .= sprintf("%-8s %-23s %-17s %-17s %-10s %s\n",'ID','STATUS','PRESERVATION','LATEST DEPOSIT','SNAPSHOT','COLLECTION');
+		$out .= sprintf("%-8s %-23s %-17s %-17s %-10s %-17s %s\n",'ID','STATUS','PRESERVATION','LATEST DEPOSIT','SNAPSHOT','LAST CHECKED (UTC)','COLLECTION');
 		foreach ($report['collections'] as $row) {
 			$coverage = $row['preservation'] ?: $row['latest_deposit'];
 			$label = preg_replace('/[\x00-\x1f\x7f]+/',' ',$row['label']);
-			$stateField = $recorded ? 'delivery_status' : 'freshness';
-			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %s\n",$row['collection_id'],$row['status'],$row['preservation'][$stateField] ?? 'never_confirmed',
-				$row['latest_deposit'][$stateField] ?? 'none',substr($coverage['captured_at'] ?? '-',0,10),$label);
+			$state = static function($candidate,$none) use ($recorded) { return $candidate ? ($recorded && $candidate['freshness'] === 'not_checked' ? $candidate['delivery_status'] : $candidate['freshness']) : $none; };
+			$checked = $row['last_checked_at'] ? substr(str_replace('T',' ',$row['last_checked_at']),0,16).'Z' : '-';
+			$out .= sprintf("%-8d %-23s %-17s %-17s %-10s %-17s %s\n",$row['collection_id'],$row['status'],$state($row['preservation'],'never_confirmed'),
+				$state($row['latest_deposit'],'none'),substr($coverage['captured_at'] ?? '-',0,10),$checked,$label);
 			foreach (array_unique(array_filter([$row['preservation']['error'] ?? null,$row['latest_deposit']['error'] ?? null])) as $error) { $out .= '         '.$error."\n"; }
 		}
 		$out .= 'Collections: '.$report['summary']['collections'].'; attention required: '.$report['summary']['attention_required'].'; errors: '.$report['summary']['errors']."\n";
 		$out .= 'Organizational units excluded: '.$report['summary']['organizational_units'].'; subordinate records included with parents: '.$report['summary']['included_descendants']."\n";
-		if ($recorded) { $out .= "Content freshness not checked. Use --verify for a metadata and original-file checksum check.\n"; }
+		if ($recorded) { $out .= "Uses saved change scans when available; unscanned content freshness not checked. Use --verify for original-file checksum verification.\n"; }
 		foreach ($report['warnings'] as $warning) { $out .= 'Warning for root #'.$warning['root_collection_id'].': '.$warning['message']."\n"; }
 		return $out;
 	}

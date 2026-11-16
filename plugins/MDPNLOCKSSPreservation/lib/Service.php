@@ -148,7 +148,7 @@ final class Service {
 				$user = $this->freshUser((int)$job['user_id']); self::authorize($user,(int)$job['collection_id']);
 				$after = (new Collector(($this->catalogueFactory)($user)))->capture((int)$job['collection_id'],$this->store->repositoryId());
 				$after['schema']['bagit_profile'] = $profile;
-				unset($snapshot['captured_at'],$after['captured_at']);
+				unset($snapshot['captured_at'],$after['captured_at'],$snapshot['change_log_cursor'],$after['change_log_cursor']);
 				if (Store::json($snapshot) !== Store::json($after)) { throw new Failure('Catalogue metadata or original files changed during capture. Create a new job.'); }
 				$this->requireEligible((int)$job['collection_id'],$user);
 				Store::write($directory.'/result.json',$result);

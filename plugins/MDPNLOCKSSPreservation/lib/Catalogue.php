@@ -78,16 +78,90 @@ final class ProvidenceCatalogue {
 		}
 		return $rows;
 	}
-	public function rows(string $table, ?string $field=null, array $ids=[]) : array {
+	public function rows(string $table, ?string $field=null, array $ids=[], array $fields=[]) : array {
 		$info = $this->info($table);
 		if ($field !== null && !in_array($field,$info['fields'],true)) { throw new Failure('Unknown catalogue field.'); }
+		if (array_diff($fields,$info['fields'])) { throw new Failure('Unknown catalogue scan field.'); }
+		$select = $fields ? implode(',',array_map(static function($f) { return '`'.$f.'`'; },array_unique(array_merge([$info['primary_key']],$fields)))) : '*';
 		if ($field !== null && !$ids) { return []; }
 		$rows = [];
 		foreach ($field === null ? [null] : array_chunk(array_values(array_unique(array_map('intval',$ids))),500) as $batch) {
-			$q = $field === null ? $this->query('SELECT * FROM '.$table) : $this->query('SELECT * FROM '.$table.' WHERE '.$field.' IN (?)',[$batch]);
+			$q = $field === null ? $this->query('SELECT '.$select.' FROM '.$table) : $this->query('SELECT '.$select.' FROM '.$table.' WHERE '.$field.' IN (?)',[$batch]);
 			while ($q->nextRow()) { $r = $q->getRow(); $rows[(string)$r[$info['primary_key']]] = $r; }
 		}
 		ksort($rows,SORT_NATURAL); return $rows;
+	}
+	/** Native log entries are scoped by direct records/subjects, not related authorities. */
+	private function changeLogPrefix() : string {
+		$database = trim((string)\Configuration::load()->get('change_log_database'));
+		if ($database !== '' && !preg_match('/^[A-Za-z0-9_]+$/D',$database)) { throw new Failure('The change-log database name is invalid.'); }
+		return $database !== '' ? '`'.$database.'`.' : '';
+	}
+	public function changeCursor() : int {
+		$q = $this->query('SELECT COALESCE(MAX(log_id),0) AS cursor FROM '.$this->changeLogPrefix().'ca_change_log'); $q->nextRow(); return (int)$q->get('cursor');
+	}
+	public function scanEvents(array $scope, int $since, ?int $cursor=null) : array {
+		$prefix = $this->changeLogPrefix();
+		$bounds = $this->query('SELECT MIN(log_datetime) AS first_time,MAX(log_id) AS last_id FROM '.$prefix.'ca_change_log'); $bounds->nextRow();
+		if (!$bounds->get('first_time') || (int)$bounds->get('first_time') > $since) { throw new Failure('Change history does not reach the deposit capture time. Run a full verification before relying on this collection scan.'); }
+		$allowed = [];
+		foreach (array_merge(array_keys($scope),['ca_attributes','ca_attribute_values','ca_acl']) as $table) {
+			if (!in_array($table,$this->tables(),true)) { continue; }
+			$info = $this->info($table); $allowed[] = (int)$info['table_num'];
+			if ($info['label_table']) { $allowed[] = (int)$this->info($info['label_table'])['table_num']; }
+		}
+		foreach (['ca_object_representation_multifiles','ca_object_representation_captions','ca_object_representation_sidecars','ca_attribute_value_multifiles'] as $table) {
+			if (in_array($table,$this->tables(),true)) { $allowed[] = (int)$this->info($table)['table_num']; }
+		}
+		$events = [];
+		foreach ($scope as $table => $ids) {
+			if (!$ids || !in_array($table,$this->tables(),true)) { continue; }
+			$num = (int)$this->info($table)['table_num'];
+			foreach (array_chunk(array_values(array_unique(array_map('intval',$ids))),500) as $batch) {
+				// Separate queries preserve use of the direct-row and subject indexes.
+				foreach ([false,true] as $subject) {
+					$sql = 'SELECT DISTINCT l.log_id,l.log_datetime,l.logged_table_num,l.logged_row_id,l.changetype,s.snapshot FROM '.$prefix.'ca_change_log l ';
+					if ($subject) { $sql .= 'JOIN '.$prefix.'ca_change_log_subjects u ON u.log_id=l.log_id '; }
+					$sql .= 'LEFT JOIN '.$prefix.'ca_change_log_snapshots s ON s.log_id=l.log_id WHERE '.($cursor === null ? 'l.log_datetime>=?' : 'l.log_id>?').' AND l.logged_table_num IN (?) AND '
+						.($subject ? 'u.subject_table_num=? AND u.subject_row_id IN (?)' : 'l.logged_table_num=? AND l.logged_row_id IN (?)');
+					$q = $this->query($sql,[$cursor ?? $since,array_values(array_unique($allowed)),$num,$batch]);
+					while ($q->nextRow()) {
+						$row = $q->getRow(); $id = (int)$row['log_id']; if (isset($events[$id])) { continue; }
+						$name = \Datamodel::getTableName((int)$row['logged_table_num']);
+						if (!$name) { throw new Failure('A change log entry refers to an unknown table.'); }
+						$raw = $row['snapshot']; $snapshot = null;
+						if (is_string($raw) && $raw !== '') {
+							$data = @gzuncompress($raw); if ($data === false) { $data = base64_decode($raw,true); }
+							if ($data !== false) { $snapshot = @unserialize($data,['allowed_classes' => false]); }
+						}
+						if (in_array($name,['ca_object_representation_multifiles','ca_attribute_value_multifiles'],true)) {
+							$info = $this->info($name); $current = $this->rows($name,$info['primary_key'],[(int)$row['logged_row_id']]);
+							$previewRow = $current[(string)$row['logged_row_id']] ?? (is_array($snapshot) ? $snapshot : []);
+							if (isset($previewRow['multifile_id'],$previewRow['media']) && $this->generatedPreview($name,$previewRow)) { continue; }
+						}
+						$events[$id] = ['id' => $id,'table' => $name,'row_id' => (int)$row['logged_row_id'],'operation' => $row['changetype'],
+							'fields' => is_array($snapshot) ? array_keys($snapshot) : null];
+					}
+				}
+			}
+		}
+		ksort($events,SORT_NUMERIC); return array_values($events);
+	}
+	public function scanFileSpecs(array $inventory) : array {
+		$owners = [];
+		foreach ($inventory as $file) { $owners[$file['owner']['table']][(int)$file['owner']['id']] = true; }
+		$files = [];
+		foreach ($owners as $table => $ids) {
+			$info = $this->info($table);
+			foreach ($this->rows($table,$info['primary_key'],array_keys($ids)) as $id => $row) {
+				$this->checkAccess($table,$row); $attributes = [];
+				foreach ($this->rows('ca_attributes','row_id',[(int)$id]) as $attribute) {
+					if ((int)$attribute['table_num'] === (int)$info['table_num']) { $attributes[] = ['row' => $attribute,'values' => array_values($this->rows('ca_attribute_values','attribute_id',[(int)$attribute['attribute_id']]))]; }
+				}
+				foreach ($this->files($table,$row,$attributes) as $file) { $files[$file['key']] = $file; }
+			}
+		}
+		return $files;
 	}
 	public function hierarchyType() : ?int {
 		$config = \Configuration::load(); $value = $config->get('ca_objects_x_collections_hierarchy_relationship_type');
@@ -319,19 +393,20 @@ final class Collector {
 			foreach ($this->records as &$rows) { ksort($rows,SORT_NATURAL); } unset($rows);
 			foreach ($this->relationships as &$rows) { ksort($rows,SORT_NATURAL); } unset($rows);
 			return self::portable(['repository_id' => $repository,'collection_id' => $root,'captured_at' => gmdate('c'),
+				'change_log_cursor' => method_exists($c,'changeCursor') ? $c->changeCursor() : null,
 				'records' => $this->records,'relationships' => $this->relationships,'schema' => $schema,
 				'external_references' => array_values($external),'files' => array_values($this->files)]);
 		} finally { $c->finish(); }
 	}
-	private function descendants(string $table, array $ids) : array {
+	public function descendants(string $table, array $ids, array $fields=[]) : array {
 		$c = $this->catalogue; $result = []; $frontier = $ids;
 		while ($frontier) {
-			$rows = $c->rows($table,$c->info($table)['primary_key'],$frontier); $next = [];
+			$rows = $c->rows($table,$c->info($table)['primary_key'],$frontier,$fields); $next = [];
 			foreach ($rows as $id => $row) {
 				if (!empty($row['deleted']) || isset($result[(string)$id])) { continue; }
 				$result[(string)$id] = $row; $next[] = (int)$id;
 			}
-			$children = $next ? $c->rows($table,'parent_id',$next) : [];
+			$children = $next ? $c->rows($table,'parent_id',$next,$fields) : [];
 			$frontier = [];
 			foreach ($children as $id => $row) { if (empty($row['deleted']) && !isset($result[(string)$id])) { $frontier[] = (int)$id; } }
 		}
@@ -369,6 +444,7 @@ final class Collector {
 	private function record(string $table, array $row) : void {
 		$id = (string)$row[$this->catalogue->info($table)['primary_key']];
 		if (isset($this->records[$table][$id])) { return; }
+		if (method_exists($this->catalogue,'generatedPreview') && $this->catalogue->generatedPreview($table,$row)) { return; }
 		$this->catalogue->checkAccess($table,$row);
 		$record = $this->recordData($table,$row);
 		$this->records[$table][$id] = $record;
@@ -397,7 +473,6 @@ final class Collector {
 			$this->files[$file['key']] = $file;
 		}
 		$record = ['row' => $row,'labels' => $info['label_table'] ? array_values($c->rows($info['label_table'],$info['primary_key'],[$id])) : [],'attributes' => $attributes,'acl' => $acl];
-		if (method_exists($c,'generatedPreview') && ($preview = $c->generatedPreview($table,$row))) { $record['generated_preview'] = $preview; }
 		return $record;
 	}
 	/** Preserve bytes losslessly without letting invalid UTF-8 break JSON. */

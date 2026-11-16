@@ -27,6 +27,20 @@ $form = function($action,$name) use ($id) {
 <?php if ($baseline): ?>
 <p><?= $escape(_t('Latest complete deposit for this destination: revision %1 (%2), %3.',$baseline['revision'],$baseline['status'],$baseline['updated_at'])) ?></p>
 <?php else: ?><p><?= $escape(_t('No complete deposit for this destination. Begin with a full deposit.')) ?></p><?php endif; ?>
+<?php $changeScan = $this->getVar('change_scan'); ?>
+<?php if ($changeScan): ?>
+<h2><?= $escape(_t('Scheduled change scan')) ?></h2>
+<p><?= $escape(_t('Last checked: %1.',$changeScan['checked_at'])) ?></p>
+<?php if (($changeScan['latest_deposit_id'] ?? null) !== ($baseline['id'] ?? null)): ?>
+<p><?= $escape(_t('This scan predates the latest deposit. Its results will be refreshed by the next scheduled scan.')) ?></p>
+<?php elseif (!empty($changeScan['error'])): ?><p role="alert"><?= $escape($changeScan['error']) ?></p>
+<?php elseif ($baseline && isset($changeScan['checks'][$baseline['id']])): $check = $changeScan['checks'][$baseline['id']]; ?>
+<p role="status"><strong><?= $escape($check['freshness'] === 'current' ? _t('No changes detected since the latest deposit.') : _t('Changes detected since the latest deposit. A supplemental or new full deposit needs review.')) ?></strong></p>
+<p><?= $escape(_t('%1 relevant catalogue changes; %2 original-file metadata changes.',$check['changes']['catalogue_changes'],$check['changes']['file_metadata_changes'])) ?></p>
+<?php if (!empty($check['changes']['structure_changes'])): ?><p><?= $escape(_t('%1 hierarchy or membership changes.',$check['changes']['structure_changes'])) ?></p><?php endif; ?>
+<?php endif; ?>
+<p><small><?= $escape(_t('Checks Providence change history and original-file metadata. File contents are not read or checksummed. Results describe the time shown above.')) ?></small></p>
+<?php else: ?><p><?= $escape(_t('Scheduled change scan: not yet checked.')) ?></p><?php endif; ?>
 <?php foreach ($history as $scan): if ($scan['status'] !== 'scanned' || $scan['target'] !== $config->target()) { continue; } ?>
 <?php if ($baseline && $scan['result']['compared_to_deposit_id'] !== $baseline['id']): ?>
 <p><?= $escape(_t('The latest scan predates the current deposit. Run a fresh scan to compare current content.')) ?></p>
@@ -45,7 +59,7 @@ $form = function($action,$name) use ($id) {
 <p><label for="mdpn-mode"><?= $escape(_t('Deposit type')) ?></label><br><select id="mdpn-mode" name="mode"><?php if ($baseline): ?><option value="supplemental"><?= $escape(_t('Supplement the latest complete deposit')) ?></option><?php endif; ?><option value="full"><?= $escape(_t('Create new full deposit')) ?></option></select></p>
 <p><button type="submit"><?= $escape($config->get('transport','local') === 'local' ? _t('Create local preservation package') : _t('Create and send preservation deposit')) ?></button></p>
 </form>
-<?= $form('Submit','mdpnScanCollection') ?><input type="hidden" name="mode" value="scan"><p><button type="submit"><?= $escape(_t('Scan for changes without creating bags')) ?></button></p></form>
+<?= $form('Submit','mdpnScanCollection') ?><input type="hidden" name="mode" value="scan"><p><button type="submit"><?= $escape(_t('Verify metadata and original checksums without creating bags')) ?></button></p></form>
 <?php elseif ($active): ?><p role="status"><?= $escape(_t('A job is queued or running. Refresh this page to follow its progress; processing continues when you close the browser.')) ?></p><?php endif; ?>
 <h2><?= $escape(_t('History')) ?></h2>
 <?php if (!$history): ?><p><?= $escape(_t('No preservation jobs yet.')) ?></p><?php endif; ?>

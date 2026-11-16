@@ -45,8 +45,9 @@ class SyntheticCatalogue {
 		$d = $this->definitions[$table];
 		return ['primary_key' => $d[0],'table_num' => $d[1],'label_table' => $d[2],'relationship' => $d[3] ?? null,'fields' => array_keys(reset($this->data[$table]) ?: []),'foreign_keys' => []];
 	}
-	public function rows(string $table, ?string $field=null, array $ids=[]) : array {
+	public function rows(string $table, ?string $field=null, array $ids=[], array $fields=[]) : array {
 		$result = array_filter($this->data[$table],function($r) use ($field,$ids) { return $field === null || in_array($r[$field] ?? null,$ids); });
+		if ($fields) { $keep = array_fill_keys(array_merge([$this->info($table)['primary_key']],$fields),true); $result = array_map(static function($r) use ($keep) { return array_intersect_key($r,$keep); },$result); }
 		ksort($result); return $result;
 	}
 	public function begin() : void {}

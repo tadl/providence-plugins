@@ -46,6 +46,26 @@ final class Store {
 		} catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
 	}
 	public function repositoryId() : string { return (string)$this->db->query("SELECT value FROM settings WHERE key='repository_id'")->fetchColumn(); }
+	private function scanKey(int $collection, string $target) : string { return 'change-scan:'.hash('sha256',$target).':'.$collection; }
+	public function changeScan(int $collection, string $target) : ?array { return $this->setting($this->scanKey($collection,$target)); }
+	public function scanBaseline(string $job) : ?array { return $this->setting('scan-baseline:'.$job); }
+	private function setting(string $key) : ?array {
+		$q = $this->db->prepare('SELECT value FROM settings WHERE key=?'); $q->execute([$key]); $value = $q->fetchColumn();
+		return $value === false ? null : json_decode($value,true,512,JSON_THROW_ON_ERROR);
+	}
+	public function saveChangeScan(int $collection, string $target, array $summary, array $baselines=[]) : void {
+		$this->requireWritable(); $this->db->beginTransaction();
+		try {
+			$q = $this->db->prepare('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)');
+			foreach ($baselines as $job => $baseline) { $q->execute(['scan-baseline:'.$job,self::json($baseline)]); }
+			if (empty($summary['error'])) {
+				$old = $this->db->prepare('SELECT id FROM jobs WHERE collection_id=? AND target=?'); $old->execute([$collection,$target]);
+				$drop = $this->db->prepare('DELETE FROM settings WHERE key=?');
+				foreach ($old->fetchAll(\PDO::FETCH_COLUMN) as $job) { if (!isset($summary['checks'][$job])) { $drop->execute(['scan-baseline:'.$job]); } }
+			}
+			$q->execute([$this->scanKey($collection,$target),self::json($summary)]); $this->db->commit();
+		} catch (\Throwable $e) { $this->db->rollBack(); throw $e; }
+	}
 	private function requireWritable() : void { if ($this->readOnly) { throw new Failure('Preservation storage is read-only.'); } }
 	public function groupIdentifier(int $collection) : string {
 		$this->requireWritable();

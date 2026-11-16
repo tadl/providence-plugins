@@ -49,6 +49,11 @@ class MDPNLOCKSSPreservationPlugin extends BaseApplicationPlugin {
 	}
 	public function hookCLICaUtilsGetCommands($commands) {
 		$commands['MDPNLOCKSSPreservation'] = [
+			'mdpn_preservation_scan' => ['Command' => 'mdpn-preservation-scan','Options' => ['apply' => _t('Save change-scan results.'),
+				'user-id|u=s' => _t('Active backend administrator ID.'),'collection-id|c=s' => _t('Optional eligible collection root; omitted means all eligible roots.'),
+				'format|f=s' => _t('text summary (default) or json; use --quiet for JSON.')],
+				'Help' => _t('Detect logged catalogue changes and original-file metadata changes without hashing originals. Requires --apply. Saves results and check times for reports and the preservation page; creates no bags or uploads.'),
+				'ShortHelp' => _t('Save collection change flags without rereading original files.')],
 			'mdpn_preservation_refresh_profile' => ['Command' => 'mdpn-preservation-refresh-profile','Options' => ['apply' => _t('Download and validate the current canonical MDPN settings.')],
 				'Help' => _t('Refresh the private MDPN settings cache from the canonical HTTPS source. Requires --apply and MDPN mode. New scans and deposits refresh automatically; reports and retained-package retries do not download settings.'),
 				'ShortHelp' => _t('Refresh canonical MDPN packaging settings.')],

@@ -24,7 +24,7 @@ import tempfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.11"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.12"
 TAG_READ_LIMIT = 512 * 1024 * 1024
 
 
@@ -169,7 +169,9 @@ def collection_records(snapshot):
                                               if k not in ("hier_left", "hier_right", "view_count")
                                               and not (k == "rank" and table == "ca_collections"
                                                        and str(key) == str(snapshot.get("collection_id")))}}
-                         for key, record in rows.items()}
+                         for key, record in rows.items() if not record.get("generated_preview")}
+        if not result[table]:
+            del result[table]
     return result
 
 
@@ -264,6 +266,68 @@ def compare_report(request):
         matches = current_fingerprint == content_fingerprint(saved)
         comparisons[job_id] = {"current": matches, "recovery_context_changed": matches and fingerprint(current) != saved["fingerprint"], "changes": dict(counts)}
     return {"checked_at": current["captured_at"], "comparisons": comparisons}
+
+
+def scan_row_hash(table, key, row, root):
+    if table in MEANING_FIELDS:
+        row = {field: row[field] for field in MEANING_FIELDS[table] if field in row}
+    else:
+        row = {field: value for field, value in row.items() if field not in ("hier_left", "hier_right", "view_count")
+               and not (field == "rank" and table == "ca_collections" and str(key) == str(root))}
+    return hashlib.sha256(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def scan_inventory(request):
+    """One-time compact watch inventory; never open originals or validate hashes."""
+    with Path(request["path"]).open(encoding="utf-8") as stream:
+        snapshot = json.load(stream)["snapshot"]
+    expected = request["expected"]
+    if any(snapshot.get(key) != value for key, value in expected.items()):
+        raise ValueError("The saved scan inventory does not match its deposit")
+    scope = {table: [key for key, record in rows.items() if not record.get("generated_preview")]
+                      for table, rows in snapshot["records"].items()
+                      if table in PRIMARY_TABLES or table.startswith("ca_object_representation_")}
+    scope.update({table: list(rows) for table, rows in snapshot["relationships"].items()})
+    hashes = {}
+    tables = snapshot["schema"].get("tables", {})
+
+    def add(table, row, key=None):
+        if table and isinstance(row, dict):
+            key = key if key is not None else row.get(tables.get(table, {}).get("primary_key"))
+            if key is not None:
+                hashes.setdefault(table, {})[str(key)] = scan_row_hash(table, key, row, snapshot["collection_id"])
+
+    for category in (collection_records(snapshot), snapshot["relationships"]):
+        for table, records in category.items():
+            for key, record in records.items():
+                add(table, record["row"], key)
+                for label in record.get("labels", []):
+                    add(tables.get(table, {}).get("label_table"), label)
+                for attribute in record.get("attributes", []):
+                    add("ca_attributes", attribute.get("row", {}))
+                    for value in attribute.get("values", []):
+                        add("ca_attribute_values", value)
+                for acl in record.get("acl", []):
+                    add("ca_acl", acl)
+    for table, rows in catalogue_schema(snapshot).items():
+        for key, row in rows.items():
+            add(table, row, key)
+    return {"fingerprint": snapshot["fingerprint"], "change_log_cursor": snapshot.get("change_log_cursor"), "scope": scope, "row_hashes": hashes,
+            "files": [{key: item[key] for key in ("key", "size", "original_filename", "owner")} for item in snapshot["files"]]}
+
+
+def scan_row_changes(request):
+    count = 0
+    for event in request["events"]:
+        table, key = event["table"], str(event["row_id"])
+        row = (request["rows"].get(table) or {}).get(key)
+        previous = (request["hashes"].get(table) or {}).get(key)
+        # Unknown synthetic fields (such as ACL audit entries) cannot safely be
+        # cleared just because the owner's intrinsic row has stayed unchanged.
+        unknown = row is not None and event.get("fields") is not None and set(event["fields"]) - row.keys()
+        if row is None or previous is None or unknown or previous != scan_row_hash(table, key, row, request["collection_id"]):
+            count += 1
+    return {"changed": count}
 
 
 def csv_bytes(rows, fields):
@@ -659,6 +723,8 @@ def main():
     package = sub.add_parser("build")
     package.add_argument("request")
     sub.add_parser("compare", help="Read a maintenance comparison request from stdin; write summaries only")
+    sub.add_parser("scan-inventory", help="Extract a compact saved inventory once; never read originals")
+    sub.add_parser("scan-rows", help="Compare only logged metadata rows; never read originals")
     verify = sub.add_parser("verify")
     verify.add_argument("archives", nargs="+")
     restore = sub.add_parser("recover")
@@ -671,6 +737,10 @@ def main():
             result = build(json.loads(Path(args.request).read_text(encoding="utf-8")))
         elif args.command == "compare":
             result = compare_report(json.load(sys.stdin.buffer))
+        elif args.command == "scan-inventory":
+            result = scan_inventory(json.load(sys.stdin.buffer))
+        elif args.command == "scan-rows":
+            result = scan_row_changes(json.load(sys.stdin.buffer))
         elif args.command == "verify":
             result = [{k: v for k, v in verify_archive(p).items() if k != "snapshot"} for p in args.archives]
         else:

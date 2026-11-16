@@ -32,7 +32,7 @@ then arrange a receiving-service pilot with the preservation coordinator.
   metadata, file/media attributes, captions, sidecars and multifile originals.
 - Include PDFs/videos and a multipage image with generated viewer pages/frames.
   Verify the uploaded sources are present and the generated media bytes are
-  absent, with explicit regeneration/source metadata. Separately uploaded JPEGs,
+  absent along with their generated preview records. Separately uploaded JPEGs,
   named attachments and file/media attribute originals must remain preserved.
 - Run through the actual native task queue and its isolated PHP bootstrap.
   Use `sudo -u www-data -- php support/bin/caUtils mdpn-preservation-process-queue --apply`

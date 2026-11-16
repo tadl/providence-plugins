@@ -7,11 +7,13 @@ account `www-data`:
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
-This displays **recorded deposit and confirmation states**. It reads the private
-ledger and current collection hierarchy/labels needed to identify eligible roots.
+This displays **recorded deposit and confirmation states and saved change-scan
+results**. It reads the private ledger and current collection hierarchy/labels needed to identify eligible roots.
 It does not open recovery snapshots, export current record metadata or read
 original files. A recorded `confirmed` deposit is not a claim that the collection
-has remained unchanged since that deposit.
+has remained unchanged since that deposit. When available, saved scan results
+show `current` or `out_of_date` as of `LAST CHECKED (UTC)`. Schedule
+[change scans](CHANGESCANS.md) to refresh these flags without hashing originals.
 
 To omit collections that have never had a deposit attempt at this destination:
 
@@ -138,9 +140,9 @@ are also reported as warnings. These warnings make the command exit nonzero.
 
 ## Output and status meanings
 
-By default, the text table shows the overall recorded state, confirmed
+By default, the text table shows the overall recorded state or saved scan result, confirmed
 preservation, latest completed deposit's delivery state, snapshot date and
-collection title. A later failed or pending attempt appears in the overall
+last-check time and collection title. A later failed or pending attempt appears in the overall
 state without hiding an earlier confirmation. Confirmed collections do not
 require attention merely because content has not been rechecked.
 
@@ -157,8 +159,8 @@ interpreting historical deposits and recovery lineage.
 | --- | --- |
 | `confirmed` | Recorded LOCKSS confirmation; current content has not been rechecked |
 | `queued` / `running` | The latest deposit attempt is pending or in progress; earlier confirmations remain visible |
-| `current` | With `--verify`, a confirmed deposit matches the root's complete current hierarchy |
-| `out_of_date` | With `--verify`, current content differs from a confirmed or complete deposit |
+| `current` | A confirmed deposit has no detected changes as of its saved scan, or matches a requested full verification |
+| `out_of_date` | A saved scan detected relevant changes, or a requested full verification found different content |
 | `deposit_failed` | The latest deposit attempt failed; any earlier completed or confirmed deposit retains its own freshness status |
 | `awaiting_confirmation` | The latest complete deposit was uploaded but has not been confirmed in LOCKSS |
 | `local_only` | The latest complete deposit was built locally without a remote upload |
@@ -186,17 +188,19 @@ state inventory:
 sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7 --history-only
 ```
 
-Recorded-state reports never label freshness `current` or `out_of_date`.
-JSON retains `freshness_check: "history_only"`, `freshness: "not_checked"` and
-null content-check timestamps while reporting actual confirmation/delivery
-states. They require neither a Python binary, an MDPN policy cache nor readable
-recovery snapshots/originals. Do not combine `--history-only` with `--verify`.
+Recorded-state reports use saved change scans when available. JSON retains
+`freshness_check: "history_only"` to identify the report as a stored-state read;
+each deposit's `check_method` and `checked_at` identify its saved check. Without
+a matching saved scan, freshness remains `not_checked`. A newer deposit
+invalidates older scan results. Ordinary reports require neither a Python
+binary, an MDPN policy cache nor readable recovery snapshots/originals. They
+never perform a new content check. Do not combine `--history-only` with `--verify`.
 
 ## Arguments
 
 | Argument | Meaning |
 | --- | --- |
-| No extra arguments | Show recorded states for all eligible roots at the configured destination |
+| No extra arguments | Show recorded states and saved change flags for all eligible roots at the configured destination |
 | `--with-history` | Only list roots with at least one deposit attempt; include failures and pending attempts, exclude scan-only histories |
 | `--verify` | Check current metadata and original-file SHA-256 values; potentially expensive |
 | `--history-only` | Explicitly select the default recorded-state behavior; conflicts with `--verify` |
@@ -235,7 +239,7 @@ command can be used by an operator's existing maintenance/reporting workflow.
 
 ## Cost and limits
 
-The default recorded-state report avoids the large recovery snapshots and all
+The default recorded-state report reads only small saved summaries and avoids the large recovery snapshots and all
 original-file reads. Explicit `--verify` reads every original in each checked
 preservation hierarchy.
 Latest and confirmed baselines for the same root share one file-hashing pass.
@@ -245,6 +249,6 @@ window; history-only mode is faster but cannot establish freshness.
 
 Verification snapshots are still materialized in memory, as in the packaging
 pilot. The whole verification report is not one instantaneous database/filesystem
-snapshot: each root has its own checked-at timestamp. The report does not persist a new scan or
+snapshot: each root has its own checked-at timestamp. The report itself does not persist a new scan or
 update the collection editor's saved scan date. Changing destination identity
 starts a separate coverage history; local-test bags cannot satisfy SFTP coverage.

@@ -21,6 +21,19 @@ final class Tool {
 				return !$report['summary']['errors'] && !$report['warnings'] && (empty($settings['fail-on-attention']) || !$report['summary']['attention_required']);
 			}
 			if (empty($settings['apply'])) { throw new Failure('This operation requires --apply; no action was taken.'); }
+			if (in_array($command,['mdpn_preservation_scan','mdpn-preservation-scan'],true)) {
+				require_once __DIR__.'/ChangeScan.php'; require_once __CA_MODELS_DIR__.'/ca_users.php';
+				$format = (string)(($settings['format'] ?? '') ?: 'text');
+				if (!in_array($format,['text','json'],true)) { throw new Failure('Scan format must be text or json.'); }
+				$scan = (new ChangeScan($this->config,new Store($this->config),$this->root,$this->catalogueFactory))->run(
+					new \ca_users((int)($settings['user-id'] ?? 0)),!empty($settings['collection-id']) ? (int)$settings['collection-id'] : null);
+				if ($format === 'json') { print Store::json($scan)."\n"; }
+				else {
+					printf("Preservation change scan %s: %d collections checked; %d active skipped; %d errors.\n",$scan['finished_at'],$scan['summary']['checked'],$scan['summary']['skipped_active'],$scan['summary']['errors']);
+					foreach ($scan['collections'] as $row) { if ($row['error']) { printf("Collection #%d: %s\n",$row['collection_id'],$row['error']); } }
+				}
+				return !$scan['summary']['errors'];
+			}
 			if ($command === 'mdpn_preservation_init' || $command === 'mdpn-preservation-init') {
 				$store = new Store($this->config,true);
 				$this->config->refreshProfile();

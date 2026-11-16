@@ -41,10 +41,11 @@ class PreservationController extends ActionController {
 		return $inspector.'<div id="mdpnCollectionMenu">'.str_replace(['class="sf-menu-selected"',"class='sf-menu-selected'"],'',$menu).'</div>';
 	}
 	public function Index() {
-		$id = $this->collection(); $error = null; $history = []; $baseline = null;
+		$id = $this->collection(); $error = null; $history = []; $baseline = null; $changeScan = null;
 		try {
 			$store = new \MDPNPreservation\Store($this->preservation_config);
 			$history = $store->history($id); $baseline = $store->baseline($id,$this->preservation_config->target());
+			$changeScan = $store->changeScan($id,$this->preservation_config->target());
 			foreach ($history as &$job) {
 				$job['local_archives'] = [];
 				foreach ($job['result']['parts'] ?? [] as $n => $part) {
@@ -63,6 +64,7 @@ class PreservationController extends ActionController {
 		$this->view->setVar('default_internal_description',\MDPNPreservation\Config::defaultDescription($collection));
 		$this->view->setVar('default_contacts',$this->preservation_config->contactDefaults($this->request->user));
 		$this->view->setVar('history',$history); $this->view->setVar('baseline',$baseline); $this->view->setVar('preservation_error',$error);
+		$this->view->setVar('change_scan',$changeScan);
 		$this->view->setVar('preservation_config',$this->preservation_config);
 		$this->render('index_html.php');
 	}

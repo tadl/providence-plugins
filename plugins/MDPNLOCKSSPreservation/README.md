@@ -65,10 +65,10 @@ hierarchy relationship type is configured, all object-to-collection relationship
 types are treated as membership.
 
 Providence-generated thumbnails, viewer tiles, document-page previews and
-video frames are excluded from the file payload. Their descriptive records may
-remain in the snapshot with instructions identifying the source from which they
-can be regenerated. Uploaded JPEGs and other independently supplied files are
-retained. Administrators should review sites with custom media-processing or
+video frames are excluded. Recognized generated preview records are also omitted
+from the metadata snapshot and CSVs; Providence can regenerate derivatives from
+the preserved originals. Uploaded JPEGs and independently supplied attachments
+are retained. Administrators should review sites with custom media-processing or
 multifile import procedures; the filename suffix `original` alone does not
 establish that a file was uploaded rather than generated.
 
@@ -183,13 +183,20 @@ saved display copy; their original bag-info.txt remains inside the archive.
 | `confirmed` | An authorized operator confirmed LOCKSS preservation; local tar files are removed. |
 | `failed` | The operation did not complete; it cannot establish a supplemental baseline. |
 
-**Scan for changes without creating bags** compares current metadata and
+**Verify metadata and original checksums without creating bags** compares current metadata and
 original-file SHA-256 values with the latest complete deposit. Changes to
 hierarchy, membership, relationships, descriptive or administrative metadata,
 and original files can affect the result. Scans read every original and may
 take time for large collections. Change detection runs when a scan or deposit
 is requested; it does not run automatically on every catalogue save. A previous
 scan describes its capture time, not subsequent edits.
+
+For routine oversight, an administrator can schedule **change scans**. These
+use Providence's change history, hierarchy/membership and original-file metadata
+without reading file contents. They save dated results for the maintenance
+report and the collection's Preservation page. A new deposit invalidates older
+scan results. This is change detection, separate from checksum verification;
+see [scheduled change scans](docs/CHANGESCANS.md).
 
 Preservation freshness follows the collection hierarchy, objects,
 representations and attachments, their direct relationships, and the uploaded
@@ -365,8 +372,9 @@ collection roots. Organizational units and subordinate records are excluded
 from individual rows. Add `--with-history` to omit collections with no deposit
 attempts. The default report does not read recovery snapshots, export current
 metadata or hash originals. Explicit `--verify` checks current metadata and
-original-file hashes across each preserved hierarchy; recorded state alone
-does not establish present-day freshness. See
+original-file hashes across each preserved hierarchy. Saved change-scan results
+describe their displayed check time; recorded confirmation alone does not
+establish present-day freshness. See
 [maintenance reporting](docs/REPORTING.md) for status definitions and administrator
 commands.
 
@@ -738,8 +746,10 @@ other local plugin is required.
 
 Generated multifile previews are recognized by the native JPEG output,
 positional page/frame paths, source media type and generated or empty preview
-filename. Their snapshot records include `generated_preview`, `source_file_key`
-and `disposition: regenerate`. Capture stops if the source original is absent.
+filename. Recognized preview records and bytes are omitted; original-file
+metadata, independently uploaded attachments and necessary relationships remain.
+Freshness comparisons ignore preview records in older deposits too, so omitting
+them does not itself require a supplement. Existing immutable bags are unchanged.
 Named uploads, non-positional attachments and unrecognized multifiles remain
 preserved. Custom multifile importers require a local review of these rules.
 
@@ -883,8 +893,8 @@ sudo -u www-data -- php support/bin/caUtils mdpn-preservation-report --user-id=7
 ```
 
 Use an authorized backend administrator ID. The default reads recorded history
-and separates uploaded deposits from confirmed preservation; it does not
-recheck collection content. Add `--with-history` to list only collections with
+and saved change-scan results and separates uploaded deposits from confirmed
+preservation; it does not recheck collection content. Add `--with-history` to list only collections with
 deposit attempts, including failed or pending attempts. Add `--verify` only
 when a fresh metadata and original-file SHA-256 check is needed. The older
 `--history-only` flag explicitly selects the default behavior.
@@ -892,6 +902,16 @@ when a fresh metadata and original-file SHA-256 check is needed. The older
 gives a nonzero exit when action is needed. It creates no jobs, bags or ledger
 writes. See [maintenance reporting](docs/REPORTING.md) for all arguments,
 status meanings, privacy, runtime cost and exit behavior.
+
+To refresh saved change flags and check times without hashing originals:
+
+```sh
+sudo -u www-data -- php support/bin/caUtils mdpn-preservation-scan --user-id=7 --apply
+```
+
+It checks all eligible collection roots, including new collections needing their
+first deposit. It does not create bags or uploads. See [scheduled change scans](docs/CHANGESCANS.md)
+for scheduling, permissions, interpretation and limits.
 
 Job directories are stored under `state_directory/jobs/JOB_ID/`. The ledger,
 queue log and locks stay at the state root. Existing jobs directly under the
@@ -946,6 +966,7 @@ php plugins/MDPNLOCKSSPreservation/tests/eligibility_test.php
 php plugins/MDPNLOCKSSPreservation/tests/profile_test.php
 php plugins/MDPNLOCKSSPreservation/tests/service_test.php
 php plugins/MDPNLOCKSSPreservation/tests/report_test.php
+php plugins/MDPNLOCKSSPreservation/tests/change_scan_test.php
 php plugins/MDPNLOCKSSPreservation/tests/sftp_test.php
 python3 -B -m unittest discover -s plugins/MDPNLOCKSSPreservation/tests -p 'test_*.py'
 ```

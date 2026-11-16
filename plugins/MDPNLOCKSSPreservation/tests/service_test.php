@@ -95,7 +95,8 @@ $root = realpath(sys_get_temp_dir()).'/mdpn-service-'.bin2hex(random_bytes(8)); 
 try {
 	$values = ['enable' => 1,'state_directory' => $root,'python_binary' => getenv('TEST_PYTHON_BINARY') ?: '/usr/bin/python3','organization_code' => 'EXAMPLE',
 		'source_organization' => 'Example Archive','contact_name' => 'Example Staff','contact_email' => 'preservation@example.org',
-		'transport' => 'local','destination_id' => 'test','part_size_bytes' => 5000000,'bagit_profile' => 'generic'];
+		'transport' => 'local','destination_id' => 'test','part_size_bytes' => 5000000,'bagit_profile' => 'generic',
+		'sftp_host' => false,'sftp_port' => false,'sftp_directory' => false];
 	Configuration::$values = $values;
 	$configurationRoot = $root.'/configuration'; mkdir($configurationRoot.'/conf',0700,true);
 	file_put_contents($configurationRoot.'/conf/plugin.local.conf','# Synthetic partial local configuration');
@@ -148,8 +149,8 @@ try {
 	check($saved['parts'][0]['filename'] === 'EXAMPLE_C1_001.tar','PHP-to-Python packaging omits the part suffix for a single bag');
 	check($built['result']['bag_info'] === $saved['bag_info'] && strpos($built['result']['bag_info']['EXAMPLE_C1_001'],
 		'Internal-Sender-Description: '.$submittedInternalDescription."\n") !== false,'The ledger keeps the exact generated bag-info text separately from the recovery roadmap');
-	check($saved['snapshot']['records']['ca_object_representation_multifiles'][1]['generated_preview']['disposition'] === 'regenerate'
-		&& !in_array('ca_object_representation_multifiles:1',array_column($saved['snapshot']['files'],'key'),true),'PHP-to-Python packaging retains preview regeneration metadata without copying generated media');
+	check(!isset($saved['snapshot']['records']['ca_object_representation_multifiles'][1])
+		&& !in_array('ca_object_representation_multifiles:1',array_column($saved['snapshot']['files'],'key'),true),'PHP-to-Python packaging omits generated previews from metadata and original-file payload');
 	check(count($built['result']['recovery_chain']) === 1,'Recovery roadmap includes full deposit');
 	check($service->run($first['id'])['status'] === 'built','Duplicate queue delivery is idempotent');
 	$scan = $service->enqueue(1,'scan',$user,[]); check($service->run($scan['id'])['status'] === 'scanned','Scan completes');
@@ -202,7 +203,7 @@ try {
 	$capturedInvalid = false;
 	$invalidCatalogue = new class extends RuntimeCatalogue {
 		public $onCapture;
-		public function rows(string $table, ?string $field=null, array $ids=[]) : array { ($this->onCapture)(); throw new RuntimeException('Invalid limits must be rejected before capture.'); }
+		public function rows(string $table, ?string $field=null, array $ids=[], array $fields=[]) : array { ($this->onCapture)(); throw new RuntimeException('Invalid limits must be rejected before capture.'); }
 	};
 	$invalidCatalogue->onCapture = function() use (&$capturedInvalid) { $capturedInvalid = true; };
 	$invalidService = new \MDPNPreservation\Service(new \MDPNPreservation\Config(array_merge($values,['part_size_bytes' => null])),$store,dirname(__DIR__),function($user) use ($invalidCatalogue) { return $invalidCatalogue; });
@@ -241,7 +242,12 @@ try {
 	$longDescription = str_repeat('Synthetic narrative. ',180).'Complete description ending.';
 	ca_collections::$descriptionFields = ['ca_collections.description' => ['<p>Short fictional summary.</p><p>'.$longDescription.'</p>'],
 		'ca_collections.collection_scope_content' => ['Fictional scope and content.'],'ca_collections.provenance' => ['Example provenance.']];
+	$uiBaseline = $store->baseline(1,$config->target());
+	$store->saveChangeScan(1,$config->target(),['checked_at' => '2026-11-16T07:00:00+00:00','latest_deposit_id' => $uiBaseline['id'],'error' => null,
+		'checks' => [$uiBaseline['id'] => ['freshness' => 'out_of_date','changes' => ['catalogue_changes' => 2,'file_metadata_changes' => 0]]]]);
 	ob_start(); $controller->Index(); $html = ob_get_clean();
+	check(strpos($html,'2026-11-16T07:00:00+00:00') !== false && strpos($html,'Changes detected since the latest deposit.') !== false
+		&& strpos($html,'2 relevant catalogue changes') !== false,'Preservation page displays saved change flags and the last-check timestamp');
 	check(strpos($html,'<script>synthetic</script>') === false && strpos($html,'&lt;script&gt;synthetic&lt;/script&gt;') !== false,'Collection labels must be escaped');
 	check(strpos($html,'name="csrfToken"') !== false && strpos($html,'Local testing') !== false,'Forms include CSRF and distinguish local testing');
 	check(strpos($html,'worker-result.json') === false && strpos($html,$root) === false,'Private server paths must not leak into the page');

@@ -17,6 +17,26 @@ spec.loader.exec_module(preservation)
 
 
 class PreservationTests(unittest.TestCase):
+    def test_legacy_preview_metadata_does_not_change_freshness_or_scan_inventory(self):
+        self.snapshot["files"] = [self.original("1", b"original")]
+        full, output = self.build()
+        legacy = copy.deepcopy(full["snapshot"])
+        legacy["records"]["ca_object_representation_multifiles"] = {
+            "999": {"row": {"multifile_id": 999, "media": "generated versions"},
+                    "generated_preview": {"kind": "document_page", "disposition": "regenerate"}}}
+        legacy["fingerprint"] = preservation.fingerprint(legacy)
+        self.assertEqual(preservation.content_fingerprint(legacy), preservation.content_fingerprint(full["snapshot"]))
+        self.assertEqual(preservation.changes(full["snapshot"], legacy), [])
+        baseline = self.root / "legacy-result.json"
+        baseline.write_bytes(preservation.encoded({"snapshot": legacy}))
+        with patch.object(preservation, "read_original", side_effect=AssertionError("must not hash originals")), \
+             patch.object(preservation, "digest", side_effect=AssertionError("must not hash originals")):
+            inventory = preservation.scan_inventory({"path": str(baseline), "expected": {
+                "deposit_id": legacy["deposit_id"], "fingerprint": legacy["fingerprint"],
+                "repository_id": legacy["repository_id"], "collection_id": legacy["collection_id"]}})
+        self.assertNotIn("999", inventory["scope"].get("ca_object_representation_multifiles", []))
+        self.assertNotIn("source_path", json.dumps(inventory))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

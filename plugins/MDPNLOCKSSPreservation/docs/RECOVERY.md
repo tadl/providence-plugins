@@ -73,7 +73,9 @@ and all native value rows) and `acl`. Every field is retained rather than using
 the editor's display template. Binary/non-UTF-8 strings use a single-key
 `{"$base64": "..."}` object; decode to the exact original bytes where needed.
 
-Generated multifile page/frame records can additionally contain
+New deposits omit recognized generated preview records and their media bytes;
+Providence can regenerate derivatives from the uploaded originals. Older
+snapshots may contain generated multifile page/frame records marked
 `generated_preview`, with `kind`, `resource_path`, `source_file_key` and
 `disposition: regenerate`. Their derivative media bytes are deliberately absent
 from the file inventory. Recreate them from the preserved uploaded source using

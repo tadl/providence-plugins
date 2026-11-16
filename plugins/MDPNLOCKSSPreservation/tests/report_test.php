@@ -115,7 +115,7 @@ try {
 		&& $recordedRows[1]['preservation']['freshness'] === 'not_checked' && $recordedRows[1]['preservation']['checked_at'] === null,
 		'Recorded confirmation is available without opening recovery snapshots, reading originals or asserting current content');
 	check(preg_match('/^1\s+confirmed\s+confirmed\s+confirmed\s/m',Report::render($recorded,'text'))
-		&& strpos(Report::render($recorded,'text'),'Content freshness not checked.') !== false,'State output shows recorded confirmation/delivery and explicitly labels unverified freshness');
+		&& strpos(Report::render($recorded,'text'),'unscanned content freshness not checked.') !== false,'State output shows recorded confirmation/delivery and explicitly labels unverified freshness');
 	$noVerifierValues = array_merge($values,['python_binary' => '/unavailable/python','bagit_profile' => 'mdpn']);
 	check(index_rows((new Report(new Config($noVerifierValues),$readOnly,dirname(__DIR__),$factory))->run($user))[1]['status'] === 'confirmed',
 		'The default report does not require Python or an MDPN profile cache');

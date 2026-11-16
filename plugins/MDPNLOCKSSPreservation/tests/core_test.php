@@ -129,11 +129,9 @@ try {
 	$previews->data['ca_object_representation_multifiles'] = [1 => ['multifile_id' => 1,'representation_id' => 20,'resource_path' => '1'],2 => ['multifile_id' => 2,'representation_id' => 20,'resource_path' => '/uploads']];
 	$previews->generatedPreviews['ca_object_representation_multifiles:1'] = ['kind' => 'document_page','source_file_key' => 'ca_object_representations:20','resource_path' => '1','disposition' => 'regenerate'];
 	$originalsOnly = (new Collector($previews))->capture(1,'synthetic');
-	check(isset($originalsOnly['records']['ca_object_representation_multifiles'][1]['generated_preview']),'Generated-preview metadata records its source and regeneration policy');
+	check(!isset($originalsOnly['records']['ca_object_representation_multifiles'][1]),'Generated previews are excluded from both the metadata snapshot and file payload');
 	check(count($originalsOnly['files']) === 4 && !in_array('ca_object_representation_multifiles:1',array_column($originalsOnly['files'],'key'),true)
 		&& in_array('ca_object_representation_multifiles:2',array_column($originalsOnly['files'],'key'),true),'Generated preview bytes are excluded while source originals and manual attachments remain');
-	$previews->generatedPreviews['ca_object_representation_multifiles:1']['source_file_key'] = 'missing-source';
-	fails(function() use ($previews) { (new Collector($previews))->capture(1,'synthetic'); },'no preserved source original');
 	$catalogue->denied = ['ca_objects:11']; fails(function() use ($collector) { $collector->capture(1,'synthetic'); },'permission denied');
 	check($catalogue->finished === 2,'Failed capture releases transaction');
 	$catalogue->denied = []; $catalogue->data['ca_objects'][10]['parent_id'] = 11;
