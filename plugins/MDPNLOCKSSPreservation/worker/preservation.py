@@ -24,7 +24,7 @@ import tempfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.10"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.11"
 TAG_READ_LIMIT = 512 * 1024 * 1024
 
 

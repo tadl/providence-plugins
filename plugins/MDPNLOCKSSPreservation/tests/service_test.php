@@ -38,6 +38,7 @@ class SyntheticRequest {
 	public $parameters = [];
 	public $method = 'GET';
 	public $csrf = true;
+	public $download = false;
 	public $module = 'MDPNLOCKSSPreservation';
 	public $controller = 'Preservation';
 	public $action = 'Index';
@@ -47,6 +48,7 @@ class SyntheticRequest {
 	public function __construct($user) { $this->user = $user; }
 	public function getParameter($key,$type) { return $this->parameters[$key] ?? null; }
 	public function getRequestMethod() { return $this->method; }
+	public function isDownload($set=null) { if ($set !== null) { $this->download = (bool)$set; } return $this->download; }
 	public function getModulePath() { return $this->module; }
 	public function getController() { return $this->controller; }
 	public function setModulePath($value) { $this->module = $value; }
@@ -58,7 +60,9 @@ class SyntheticRequest {
 }
 class SyntheticResponse {
 	public $redirect;
+	public $contentType;
 	public function setRedirect($url) { $this->redirect = $url; }
+	public function setContentType($type) { $this->contentType = $type; }
 }
 class SyntheticView {
 	public $request;
@@ -264,6 +268,16 @@ try {
 	$request->parameters = ['collection_id' => 1]; ob_start(); $controller->Index(); $withoutArchives = ob_get_clean();
 	check(strpos($withoutArchives,'Local bag not retained') !== false && strpos($withoutArchives,'/Preservation/Download') === false
 		&& strpos($withoutArchives,'View bag-info.txt') !== false,'Removed archives have no download links while metadata stays visible');
+	$request->parameters = ['collection_id' => 1,'job_id' => $first['id']];
+	ob_start(); $controller->Roadmap(); $roadmapOutput = ob_get_clean();
+	$roadmap = json_decode($roadmapOutput,true,512,JSON_THROW_ON_ERROR);
+	check($request->isDownload() && $response->contentType === 'application/json' && $roadmap['deposit_id'] === $first['id']
+		&& $roadmap['collection_id'] === 1 && $roadmap['status'] === 'confirmed' && count($roadmap['chain']) === 1,
+		'The roadmap remains valid JSON after local archive deletion and opts out of the native HTML shell');
+	$request->download = false; $request->parameters = ['collection_id' => 2,'job_id' => $first['id']];
+	fails(function() use ($controller) { $controller->Roadmap(); },'another collection');
+	check(!$request->isDownload(),'Cross-collection roadmap access is rejected before changing the response layout');
+	$request->parameters = ['collection_id' => 1];
 	foreach ($bagInfo as $field) {
 		check($field->hasAttribute('readonly') && !$field->hasAttribute('name'),'Bag-info text is selectable and read-only, without becoming form input');
 		$details = $field->parentNode->parentNode;

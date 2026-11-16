@@ -110,10 +110,11 @@ then arrange a receiving-service pilot with the preservation coordinator.
   indicator is installed. A scan/deposit always recaptures content and file fixity.
 - Histories show 100 recent jobs and 200 change entries per page. Complete data
   remains in the private ledger/results and bag metadata.
-- Catalogue snapshots are materialized in memory. The archive validator caps
-  each metadata file at 512 MiB. Establish practical collection size/memory
-  limits in the pilot before processing very large production catalogues.
-- SFTP is tested with a synthetic protocol fake. Readback verifies bytes but
-  adds download traffic; confirm this is acceptable to the staging operator.
-- No automatic cleanup, running-job cancellation, replication polling, S3,
+- Catalogue snapshots are materialized in memory. Recovery snapshots have no
+  tag-file read cap. Establish practical collection size/memory limits in the
+  pilot before processing very large production catalogues.
+- SFTP is tested with a synthetic protocol fake. Normal uploads use completion
+  and remote-size checks without a full download. Resume-prefix and existing-file
+  collision checks still read remote content; include those cases in the pilot.
+- No scheduled history cleanup, running-job cancellation, replication polling, S3,
   arbitrary BagIt profiles or cross-server/shared-NFS ledger operation is supplied.

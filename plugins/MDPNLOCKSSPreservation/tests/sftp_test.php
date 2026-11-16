@@ -8,6 +8,8 @@ namespace phpseclib3\Net {
 		public static $files = [];
 		public static $logins = 0;
 		public static $interrupt = false;
+		public static $shortWrite = false;
+		public static $reads = [];
 		public static $key = 'ssh-ed25519 c3ludGhldGljLWhvc3Qta2V5';
 		public function __construct($host,$port,$timeout) {}
 		public function getServerPublicHostKey() { return self::$key; }
@@ -15,10 +17,11 @@ namespace phpseclib3\Net {
 		public function file_exists($path) { return isset(self::$files[$path]); }
 		public function clearStatCache() {}
 		public function filesize($path) { return isset(self::$files[$path]) ? strlen(self::$files[$path]) : false; }
-		public function get($path,$unused,$offset,$length) { return isset(self::$files[$path]) ? substr(self::$files[$path],$offset,$length) : false; }
+		public function get($path,$unused,$offset,$length) { self::$reads[] = ['offset' => $offset,'length' => $length]; return isset(self::$files[$path]) ? substr(self::$files[$path],$offset,$length) : false; }
 		public function put($path,$local,$mode) {
 			$content = file_get_contents($local);
 			if (self::$interrupt) { self::$interrupt = false; self::$files[$path] = substr($content,0,3); return false; }
+			if (self::$shortWrite) { self::$shortWrite = false; self::$files[$path] = substr($content,0,-1); return true; }
 			$offset = ($mode & self::RESUME) ? strlen(self::$files[$path]) : 0;
 			self::$files[$path] = substr(self::$files[$path] ?? '',0,$offset).substr($content,$offset); return true;
 		}
@@ -48,13 +51,21 @@ namespace {
 		fails(function() use ($transport,$local,$part) { $transport->send($local,$part); },'interrupted');
 		verify(!isset(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar']),'Partial uploads must not be finalized');
 		$transport->send($local,$part);
-		verify(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar'] === file_get_contents($local),'Resume and remote byte verification');
+		verify(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar'] === file_get_contents($local),'Resume retains the original archive bytes');
+		verify(\phpseclib3\Net\SFTP::$reads === [['offset' => 0,'length' => 3]],'A resumed upload reads only the preexisting prefix, not the completed archive');
 		$transport->send($local,$part);
-		\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar'] = 'different bytes';
+		\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar'] = str_repeat('x',filesize($local));
 		fails(function() use ($transport,$local,$part) { $transport->send($local,$part); },'not overwritten');
 		unset(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar']);
 		\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_test.tar.partial'] = 'corrupt';
 		fails(function() use ($transport,$local,$part) { $transport->send($local,$part); },'partial upload does not match');
+		$fresh = $part; $fresh['filename'] = 'EXAMPLE_fresh.tar'; \phpseclib3\Net\SFTP::$reads = [];
+		$transport->send($local,$fresh);
+		verify(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_fresh.tar'] === file_get_contents($local)
+			&& !\phpseclib3\Net\SFTP::$reads,'Successful new uploads are finalized without downloading their contents');
+		$short = $part; $short['filename'] = 'EXAMPLE_short.tar'; \phpseclib3\Net\SFTP::$shortWrite = true;
+		fails(function() use ($transport,$local,$short) { $transport->send($local,$short); },'size does not match');
+		verify(!isset(\phpseclib3\Net\SFTP::$files['/incoming/EXAMPLE_short.tar']),'A short remote file is never finalized even when the server reported success');
 		foreach (['.' => './EXAMPLE_test.tar','/' => '/EXAMPLE_test.tar'] as $directory => $remote) {
 			$home_values = $values; $home_values['sftp_directory'] = $directory;
 			(new \MDPNPreservation\SftpTransport(new \MDPNPreservation\Config($home_values)))->send($local,$part);

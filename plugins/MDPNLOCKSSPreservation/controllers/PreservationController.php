@@ -94,6 +94,8 @@ class PreservationController extends ActionController {
 	public function Roadmap() {
 		$id = $this->collection(); $job = $this->job($id);
 		if (empty($job['result']['recovery_chain'])) { throw new ApplicationException(_t('This job has no completed recovery roadmap.')); }
+		// PageFormat omits the editor shell for native download responses.
+		$this->request->isDownload(true);
 		$this->response->setContentType('application/json');
 		$this->view->setVar('roadmap',['format' => 'mdpn-ca-preservation-1','deposit_id' => $job['id'],'collection_id' => $id,
 			'status' => $job['status'],'chain' => $job['result']['recovery_chain']]);

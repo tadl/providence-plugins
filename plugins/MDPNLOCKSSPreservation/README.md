@@ -139,7 +139,8 @@ following workflow.
    every part was delivered. Expand **View bag-info.txt** beside any bag to
    inspect or copy its exact transfer metadata from a read-only textarea.
    Retain access to the recovery roadmap, which lists the bags and checksums
-   needed to reconstruct this version.
+   needed to reconstruct this version. **View recovery roadmap** returns a JSON
+   document for retrieval and recovery tools.
 6. Coordinate with the receiving service to check processing and arrange LOCKSS
    crawls of every new AU. A successful staging upload is not evidence of a
    completed crawl or distributed preservation.
@@ -667,9 +668,16 @@ through a trusted channel. Do not discover-and-trust the key automatically.
 Agree that `<bag>.tar.partial` files are ignored by preprocessing and that
 renaming a complete upload to `<bag>.tar` is the publication step. The account
 must have one writer and allow temporary-file reads, stat, upload/resume and
-rename. Completed uploads are read back and compared byte for byte. A matching
-existing completed archive is accepted as an idempotent retry; a different
-archive is never overwritten. A matching partial prefix can resume.
+rename. A matching existing completed archive is accepted as an idempotent retry;
+a different archive is never overwritten. A matching partial prefix can resume.
+
+For a new upload, successful SFTP completion and an exact remote-size check are
+followed by renaming the partial file to its final name. The plugin does not
+download the complete archive again after sending it. Existing remote files
+are read only when checking a partial prefix for resumption or verifying an
+already-completed file during an idempotent retry. These checks prevent mixing
+different archives under the same name. BagIt checksums and local archive
+validation remain part of packaging.
 
 Use an absolute `sftp_directory`, `/` for the account's server root, or `.` for
 its login/home directory (the equivalent of DART's empty SFTP bucket setting).

@@ -54,7 +54,10 @@ final class SftpTransport {
 				$mode |= $class::RESUME;
 			}
 			if (!$this->client->put($partial,$local,$mode)) { throw new Failure('SFTP upload was interrupted. Retry the retained package.'); }
-			if (!$this->matches($partial,$local,true)) { throw new Failure('The uploaded archive did not pass byte-for-byte verification.'); }
+			// SFTP reports failed writes. Check completion without downloading a
+			// second copy of every successfully uploaded preservation archive.
+			$this->client->clearStatCache(); $remote_size = $this->client->filesize($partial);
+			if (!is_int($remote_size) || $remote_size !== filesize($local)) { throw new Failure('The uploaded archive size does not match the local archive.'); }
 			// Recheck the immutable name immediately before finalization. The account
 			// must have one writer; SFTP has no portable atomic no-replace rename.
 			if ($this->client->file_exists($final) || !$this->client->rename($partial,$final)) { throw new Failure('SFTP finalization failed. Operator review is required.'); }
