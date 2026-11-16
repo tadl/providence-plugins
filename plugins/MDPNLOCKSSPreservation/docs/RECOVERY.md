@@ -155,6 +155,8 @@ detection and incremental planning; its metadata also exists inside the bag.
 Retrieve the required bags from LOCKSS when carrying out recovery. Checksums,
 bag identities, lineage and the confirmation history remain in the ledger and
 roadmap even when the tar files are no longer stored locally.
+Scans and unchanged attempts create no preservation bag or operational baseline;
+their summaries remain in the ledger without a full local snapshot.
 
 ## Reimport into Providence
 

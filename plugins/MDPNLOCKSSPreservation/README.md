@@ -849,8 +849,10 @@ private log and rotation policy. Individual job diagnostics are in
 `state_directory/jobs/JOB_ID/`, including `php-worker-output.txt`,
 `php-worker-error.txt`, `worker-result.json` and `worker-error.txt`. Treat those
 files as private operational records. Review them when a job fails before
-resetting or retrying it. A completed operation removes redundant requests,
+resetting or retrying it. A completed deposit removes redundant requests,
 worker output and logs after saving its permanent `result.json` baseline.
+Scans and unchanged attempts retain their history summary in the ledger and
+discard the full working snapshot, since neither establishes a deposit baseline.
 
 Builds use a private `.build-*` directory inside the job directory and publish
 archives only after every part has passed verification. A handled build failure

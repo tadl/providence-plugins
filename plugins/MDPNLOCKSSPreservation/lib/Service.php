@@ -174,6 +174,12 @@ final class Service {
 			}
 			$this->store->update($id,['status' => $status]);
 			$this->discardWorkingFiles($directory,true);
+			// Scans and no-op attempts never establish a deposit baseline. Their
+			// history summaries are already durable in the ledger.
+			if (in_array($status,['scanned','unchanged'],true)) {
+				if (!@unlink($directory.'/result.json')) { throw new Failure('The redundant scan snapshot could not be removed.'); }
+				@rmdir($directory);
+			}
 			return ['status' => $status,'parts' => count($result['parts'])];
 		} catch (\Throwable $e) {
 			// Native exceptions may include SQL, credentials or catalogue values.

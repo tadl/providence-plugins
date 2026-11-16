@@ -150,6 +150,8 @@ try {
 	check($service->run($first['id'])['status'] === 'built','Duplicate queue delivery is idempotent');
 	$scan = $service->enqueue(1,'scan',$user,[]); check($service->run($scan['id'])['status'] === 'scanned','Scan completes');
 	check($store->get($scan['id'])['result']['changed'] === false,'Unchanged scan matches baseline');
+	check(!is_file($store->directory($scan['id']).'/result.json') && is_file($store->directory($first['id']).'/result.json'),
+		'Scan summaries remain in the ledger without retaining a second full snapshot or deleting the deposit baseline');
 	$unchanged = $service->enqueue(1,'supplemental',$user,[]);
 	check($service->run($unchanged['id']) === ['status' => 'unchanged','parts' => 0],'An empty supplement completes without a failed job or transport');
 	check($store->get($unchanged['id'])['status'] === 'unchanged' && $store->baseline(1,$config->target())['id'] === $first['id']
