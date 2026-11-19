@@ -15,6 +15,16 @@ class CollectionAclRuntime extends AppControllerPlugin {
 		$sync = new CollectionAclSynchronizer($this->scope);
 		if ($sync->configurationErrors()) { throw new ApplicationException(_t('Collection segmentation configuration is incomplete. Contact an administrator.')); }
 		$plan = $sync->inspect();
+		if (($plan['collisions'] || CollectionAclSynchronizer::needsChanges($plan)) && !CollectionAclSynchronizer::hasOnlyMarkerRepairs($plan)) {
+			// A parallel native save may not have reached postDispatch yet.
+			// Retry once without applying permission or membership changes here.
+			usleep(150000);
+			$plan = $sync->inspect();
+		}
+		if (CollectionAclSynchronizer::hasOnlyMarkerRepairs($plan)) {
+			$sync->repairOwnershipMarkers();
+			$plan = $sync->inspect();
+		}
 		if ($plan['collisions'] || CollectionAclSynchronizer::needsChanges($plan)) {
 			throw new ApplicationException(_t('Collection permissions need synchronization. Contact an administrator.'));
 		}

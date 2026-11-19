@@ -77,7 +77,8 @@ PROVIDENCE_REFERENCE_ROOT=/path/to/trusted/providence bash scripts/check.sh
 The sibling suite was developed against Providence 2.0.10. It reads the actual
 hierarchy Add template and navigation handler without bootstrapping Providence
 or reading installation connection settings. The collection ACL suite also
-executes two native ACL methods against synthetic in-memory SQLite data. PHP
+executes native access checks and group ACL replacement methods against synthetic
+in-memory SQLite data. PHP
 with PDO SQLite and Node.js are required.
 Browser checks additionally require Playwright and its matching Chromium;
 `NODE_PATH` can point to an external directory containing the Playwright package.

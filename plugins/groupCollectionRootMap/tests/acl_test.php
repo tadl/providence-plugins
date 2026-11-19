@@ -33,6 +33,7 @@ function fixture() {
 	CollectionAccessScope::clearScopeCache();
 	CollectionAclSynchronizer::$new_records = [];
 	CollectionAclSynchronizer::$dirty = false;
+	Db::$before_query = null;
 	Session::$vars = ResultContextStorage::$vars = [];
 	ca_acl::clearAccessValueCache();
 	return new CollectionAccessScope(Configuration::$plugin);
@@ -284,6 +285,117 @@ try {
 		refuses(fn() => $sync->apply($sync->inspect(),$backup), 'Conflicting state blocks apply');
 		expect(snapshot() === $before, 'Conflicting unmanaged ACLs are never overwritten');
 	}
+
+	// Exercise the actual native Access save methods: even unchanged grants are
+	// deleted/reinserted without the plugin's notes by Providence 2.0.10.
+	$scope = fixture(); $sync = new CollectionAclSynchronizer($scope); $sync->apply($sync->inspect(), $backup);
+	$runtime = new CollectionAclRuntime($scope); $runtime->request = new SyntheticRequest();
+	$runtime->routeStartup();
+	$editor = new NativeAclEditorFixture('ca_collections', 101);
+	$group_access = array_column($editor->getACLUserGroups(), 'access', 'group_id');
+	$before_ids = array_column(snapshot(), 'acl_id');
+	expect($editor->setACLUserGroups($group_access), 'Native SetAccess can resave unchanged group grants');
+	$plan = $sync->inspect();
+	expect(!$plan['collisions'] && $plan['summary']['acl_to_retag'] === 2 && CollectionAclSynchronizer::hasOnlyMarkerRepairs($plan), 'Native grant replacement needs ownership markers only');
+	$unmarked = snapshot();
+	$restored = array_map(function($row) { if ($row['notes'] === '') { $row['notes'] = CollectionAclPolicy::OWNER; } return $row; }, $unmarked);
+	expect(count(array_diff(array_column($unmarked, 'acl_id'), $before_ids)) === 2, 'Trusted native replacement creates new ACL rows rather than retaining ownership metadata');
+	$runtime->request->method = 'POST';
+	$runtime->postDispatch();
+	expect(snapshot() === $restored && !$sync::needsChanges($sync->inspect()), 'Normal postDispatch repairs ownership in place without changing any permission field');
+	expect(permitted(12, 'ca_collections', 101) === 3 && permitted(34, 'ca_collections', 101) === 0, 'Native access stays isolated after a permissions-panel resave');
+
+	// Recover pre-existing marker loss before a read, without touching any grants,
+	// memberships, caches or existing authenticated session variables.
+	$editor->setACLUserGroups($group_access);
+	$unmarked = snapshot();
+	$restored = array_map(function($row) { if ($row['notes'] === '') { $row['notes'] = CollectionAclPolicy::OWNER; } return $row; }, $unmarked);
+	$runtime->request->method = 'GET';
+	Session::setVar('synthetic_authenticated_user', 12);
+	$session = Session::$vars;
+	$flushed = MemoryCache::$flushed;
+	$runtime->routeStartup();
+	expect(snapshot() === $restored && !$sync::needsChanges($sync->inspect()), 'Read startup repairs exact expected ownership markers and rechecks clean state');
+	expect(Session::$vars === $session && MemoryCache::$flushed === $flushed, 'Metadata-only recovery preserves the session and does not invalidate search caches');
+	$runtime->routeStartup();
+	expect(snapshot() === $restored, 'A second startup remains idempotent');
+
+	// Revalidate under the writer lock, since a mapping may change after the
+	// caller identifies a marker-only plan. Never turn startup into a full apply.
+	$editor->setACLUserGroups($group_access);
+	$unmarked = snapshot();
+	Db::$before_query = function($sql) {
+		if (str_contains($sql, 'GET_LOCK(')) { Configuration::$plugin->values['user_root_collection_map'][12] = [202]; }
+	};
+	refuses(fn() => $sync->repairOwnershipMarkers(), 'A mapping change under the lock prevents ownership-only recovery');
+	Db::$before_query = null;
+	expect(snapshot() === $unmarked, 'Rejected ownership-only recovery leaves ACL rows untouched');
+	Configuration::$plugin->values['user_root_collection_map'][12] = [101];
+	$sync->repairOwnershipMarkers();
+
+	// Native writers do not take our advisory lock. The UPDATE must retain its
+	// exact safety predicates if an ACL is changed after the locked inspection.
+	$editor->setACLUserGroups($group_access);
+	Db::$before_query = function($sql) {
+		if (str_starts_with($sql, 'UPDATE ca_acl SET notes = ? WHERE acl_id')) {
+			Db::$pdo->exec("UPDATE ca_acl SET access=1 WHERE table_num=13 AND row_id=101 AND notes=''");
+		}
+	};
+	refuses(fn() => $runtime->routeStartup(), 'An ACL edit during ownership repair fails the final startup audit');
+	Db::$before_query = null;
+	expect((int)Db::$pdo->query("SELECT count(*) FROM ca_acl WHERE table_num=13 AND row_id=101 AND access=1 AND notes=''")->fetchColumn() === 2,
+		'Conditional marker updates leave concurrently edited access and ownership untouched');
+
+	// Only an unambiguous, direct, full-access expected grant is safe to adopt.
+	foreach ([
+		"UPDATE ca_acl SET notes='manual' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET access=1,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET user_id=12,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET user_id=0,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET inherited_from_table_num=13,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET inherited_from_row_id=101,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET row_id=404,notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET group_id=(SELECT group_id FROM ca_user_groups WHERE code='gcrm_r_202'),notes='' WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET notes='' WHERE table_num=13 AND row_id=101; UPDATE ca_user_groups SET for_public_use=1 WHERE code='gcrm_all'",
+		"UPDATE ca_acl SET notes='' WHERE table_num=13 AND row_id=101; INSERT INTO ca_groups_x_roles SELECT group_id,1 FROM ca_user_groups WHERE code='gcrm_all'",
+		"UPDATE ca_acl SET notes='' WHERE table_num=13 AND row_id=101; UPDATE ca_user_groups SET description='manual' WHERE code='gcrm_all'",
+		"INSERT INTO ca_acl (table_num,row_id,group_id,access) SELECT table_num,row_id,group_id,access FROM ca_acl WHERE table_num=13 AND row_id=101",
+		"UPDATE ca_acl SET notes='' WHERE table_num=13 AND row_id=101; INSERT INTO ca_acl (table_num,row_id,group_id,access) SELECT table_num,row_id,group_id,access FROM ca_acl WHERE table_num=13 AND row_id=101"
+	] as $sql) {
+		$scope = fixture(); $sync = new CollectionAclSynchronizer($scope); $sync->apply($sync->inspect(), $backup);
+		Db::$pdo->exec($sql);
+		$before = snapshot();
+		expect((bool)$sync->inspect()['collisions'], 'Unsafe or ambiguous unmarked ACLs remain conflicts');
+		$runtime = new CollectionAclRuntime($scope); $runtime->request = new SyntheticRequest();
+		refuses(fn() => $runtime->routeStartup(), 'Unsafe marker loss still blocks reads');
+		refuses(fn() => $sync->repairOwnershipMarkers(), 'Ownership-only repair refuses genuine conflicts');
+		expect(snapshot() === $before, 'Rejected marker repair preserves manual or ambiguous ACLs');
+	}
+
+	// A parallel save may settle in postDispatch between the first audit and
+	// the one bounded read-only retry; persistent drift must still fail closed.
+	$scope = fixture(); $sync = new CollectionAclSynchronizer($scope); $sync->apply($sync->inspect(), $backup);
+	$grant = Db::$pdo->query("SELECT * FROM ca_acl WHERE table_num=13 AND row_id=101 LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+	Db::$pdo->exec('DELETE FROM ca_acl WHERE acl_id='.(int)$grant['acl_id']);
+	$audits = 0;
+	Db::$before_query = function($sql) use (&$audits, $grant) {
+		if (str_starts_with($sql, 'SELECT collection_id, parent_id') && ++$audits === 2) {
+			(new Db())->query('INSERT INTO ca_acl (table_num,row_id,group_id,user_id,access,notes) VALUES (?,?,?,?,?,?)',
+				[$grant['table_num'], $grant['row_id'], $grant['group_id'], null, 3, CollectionAclPolicy::OWNER]);
+		}
+	};
+	$runtime = new CollectionAclRuntime($scope); $runtime->request = new SyntheticRequest();
+	$runtime->routeStartup();
+	Db::$before_query = null;
+	expect($audits === 2 && !$sync::needsChanges($sync->inspect()), 'A concurrent save that settles before the single retry avoids a transient outage');
+	Db::$pdo->exec('DELETE FROM ca_acl WHERE acl_id='.(int)Db::$pdo->query('SELECT max(acl_id) FROM ca_acl')->fetchColumn());
+	$before = snapshot();
+	$audits = 0;
+	Db::$before_query = function($sql) use (&$audits) { if (str_starts_with($sql, 'SELECT collection_id, parent_id')) { $audits++; } };
+	refuses(fn() => $runtime->routeStartup(), 'Persistent missing permissions remain blocked after retry');
+	Db::$before_query = null;
+	expect($audits === 2 && snapshot() === $before, 'Startup retries once and never applies a missing grant');
+
 	$scope = fixture(); $sync = new CollectionAclSynchronizer($scope);
 	Db::$pdo->exec("INSERT INTO ca_user_groups (code,description) VALUES ('gcrm_all','unrelated')");
 	expect((bool)$sync->inspect()['collisions'], 'Reserved group code collision is detected');

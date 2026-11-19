@@ -38,8 +38,10 @@ class Db {
 	public static $pdo;
 	public static $locked = false;
 	public static $fail_on_acl_insert = false;
+	public static $before_query = null;
 	public function query($sql, ...$args) {
 		$params = count($args) === 1 && is_array($args[0]) ? $args[0] : $args;
+		if (self::$before_query) { (self::$before_query)($sql); }
 		if (str_contains($sql, 'GET_LOCK(')) { return new SyntheticResult([['acquired' => self::$locked ? 0 : 1]]); }
 		if (str_contains($sql, 'RELEASE_LOCK(')) { return new SyntheticResult([]); }
 		if (self::$fail_on_acl_insert && str_starts_with($sql, 'INSERT INTO ca_acl')) { throw new RuntimeException('Synthetic write failure'); }
@@ -166,7 +168,7 @@ class SyntheticRequest {
 	public function getParameter($name, $type) { return $this->params[$name] ?? 0; }
 }
 
-// Execute only these two methods from the trusted reference, without loading
+// Execute only selected methods from the trusted reference, without loading
 // its bootstrap, database credentials or any other installation configuration.
 $reference = getenv('PROVIDENCE_REFERENCE_ROOT') ?: dirname(__DIR__, 4).'/providence';
 $schema = file_get_contents($reference.'/install/inc/schema_mysql.sql');
@@ -181,7 +183,46 @@ function nativeMethod($path, $method) {
 	}
 	return $matches[0];
 }
-eval('class ca_acl { public static $s_acl_access_value_cache = []; public static function clearAccessValueCache() { self::$s_acl_access_value_cache = []; } '.nativeMethod($reference.'/app/models/ca_acl.php', 'accessForRow').'}');
+// Minimal model storage boundary for the native group ACL replacement methods.
+class NativeAclStorageFixture {
+	private $values = [];
+	public function clear() { $this->values = []; }
+	public function setTransaction($transaction) {}
+	public function load($values) {
+		$clauses = array_map(fn($key) => $key.' = ?', array_keys($values));
+		$result = (new Db())->query('SELECT * FROM ca_acl WHERE '.join(' AND ', $clauses), array_values($values));
+		if ($result->nextRow()) { $this->values = $result->getRow(); return true; }
+		return false;
+	}
+	public function set($key, $value) { $this->values[$key] = $value; }
+	public function get($key) { return $this->values[$key] ?? null; }
+	public function getPrimaryKey() { return $this->get('acl_id'); }
+	public function insert() {
+		(new Db())->query('INSERT INTO ca_acl ('.join(',', array_keys($this->values)).') VALUES ('
+			.join(',', array_fill(0, count($this->values), '?')).')', array_values($this->values));
+	}
+	public function numErrors() { return 0; }
+}
+eval('class ca_acl extends NativeAclStorageFixture { public static $s_acl_access_value_cache = []; public static function clearAccessValueCache() { self::$s_acl_access_value_cache = []; } '.nativeMethod($reference.'/app/models/ca_acl.php', 'accessForRow').'}');
+$native_editor_methods = '';
+foreach (['setACLUserGroups', 'removeAllACLUserGroups', 'addACLUserGroups'] as $method) {
+	$native_editor_methods .= nativeMethod($reference.'/app/lib/BundlableLabelableBaseModelWithAttributes.php', $method);
+}
+eval('class NativeAclEditorFixture {
+	private $table_num;
+	private $id;
+	public function __construct($table, $id) { $this->table_num = Datamodel::getTableNum($table); $this->id = $id; }
+	public function tableNum() { return $this->table_num; }
+	public function getPrimaryKey() { return $this->id; }
+	public function getTransaction() { return null; }
+	public function getDb() { return new Db(); }
+	public function getACLUserGroups($options=null) {
+		$result = $this->getDb()->query("SELECT group_id, access FROM ca_acl WHERE table_num = ? AND row_id = ? AND group_id IS NOT NULL", [$this->table_num, $this->id]);
+		$groups = [];
+		while ($result->nextRow()) { $groups[$result->get("group_id")] = $result->getRow(); }
+		return $groups;
+	}
+	'.$native_editor_methods.'}');
 eval('class NativeFindFixture {
 	public $db;
 	public function __construct() { $this->db = new Db(); }
