@@ -90,9 +90,11 @@ must be enabled for its caUtils command to be registered.
    Incomplete configuration is expected during preparation.
 
 2. Resolve existing ACL conflicts deliberately. Apply refuses positive unmanaged
-   world grants, any unmanaged user/group ACL (including denies), reserved group
+   world grants, unmanaged user/group ACLs (including denies), reserved group
    code collisions, public enrollment in managed groups, or application roles on
-   managed groups. It never silently replaces manual permissions. Missing/deleted
+   managed groups. The exact expected managed group grants whose ownership notes
+   were dropped by Providence's Access save can be re-tagged as described below;
+   other manual permissions are never silently replaced. Missing/deleted
    mapped roots and hierarchy cycles also stop the operation.
 
 3. In a maintenance window, stop other catalogue writers and take a normal
@@ -137,8 +139,17 @@ memberships, and ACLs tagged `gcrm:v1` (within the native ten-character notes
 limit). Unrestricted backend users join `gcrm_all`; restricted users join only
 their assigned root groups.
 Grants permit read/edit/delete at the record layer; native application roles
-still decide which operations a user may perform. Do not edit managed grants or
+still decide which operations a user may perform. Do not change managed grants or
 add application roles to these groups. Unused root groups can remain empty.
+
+Providence's normal Access-panel save deletes and recreates group ACL rows,
+dropping their `notes` even when group permissions are unchanged. Synchronization
+restores `gcrm:v1` in place only for an unambiguous, currently expected grant to
+a plugin-owned private group without application roles: empty notes, access `3`,
+no user, and neither inheritance field set. The record, group, access and ACL ID
+stay unchanged. CLI previews report these repairs as `acl_to_retag`. Nonempty
+notes, different access, unexpected groups/records, inherited or duplicate grants
+remain conflicts requiring deliberate resolution.
 
 Native object/collection ACL inheritance flags are disabled by the projection
 to avoid competing grants. The plugin calculates tree membership itself.
@@ -149,8 +160,16 @@ transaction with managed group grants. The normal editor's pending collection
 context grants access while it finishes attaching the collection.
 
 Normal Providence UI writes reconcile permissions after dispatch, including
-relationship removals. Non-administrator read requests audit the projection
-before dispatch and block stale/conflicting state. Mapping changes, role changes,
+relationship removals and dropped ownership markers. Non-administrator read
+requests audit the projection before dispatch. An otherwise synchronized state
+with only the exact marker repairs above can recover automatically after a fresh
+audit under the synchronization lock; this path changes notes only and does not
+invalidate search caches or sessions. Other stale/conflicting state receives one
+read-only retry after 150 ms, allowing a concurrent save to finish its normal
+post-dispatch synchronization, then remains blocked if still unresolved. The
+retry does not guarantee uninterrupted access during longer concurrent writes.
+Startup never applies missing grants, mapping changes or membership changes.
+Mapping changes, role changes,
 bulk imports, API writers, maintenance scripts and direct SQL changes require an
 explicit preview/apply before restricted use resumes. Services and out-of-band
 writers do not all pass through the UI guard. Reconcile after those operations;
@@ -188,8 +207,9 @@ is detected automatically; standalone clones can set
 
 The synthetic SQLite suite exercises projection, migration/idempotence,
 conflicts, private backups, concurrency rejection, creation, relationship
-removal, cache invalidation and legacy opt-out. It executes Providence's actual
-`ca_acl::accessForRow` and `BaseFindEngine::filterHitsByACL` methods without
+removal, cache invalidation, Access-panel marker loss/recovery and legacy opt-out.
+It executes Providence's actual group ACL replacement methods,
+`ca_acl::accessForRow` and `BaseFindEngine::filterHitsByACL` without
 bootstrapping an installation or reading its credentials, and enforces the notes
 length from the native SQL schema. This is not a live
 MySQL/HTTP integration test. Recheck hooks, ACL behavior and the staging cases

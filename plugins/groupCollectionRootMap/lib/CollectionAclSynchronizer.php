@@ -87,9 +87,15 @@ class CollectionAclSynchronizer {
 		foreach ($groups as $group) {
 			if ($group['for_public_use']) { $collisions[] = 'A managed group allows public self-enrollment.'; }
 		}
-		if ($group_ids && $this->rows('SELECT group_id FROM ca_groups_x_roles WHERE group_id IN (?)', [array_keys($group_ids)])) {
+		$group_roles = $group_ids ? $this->rows('SELECT group_id FROM ca_groups_x_roles WHERE group_id IN (?)', [array_keys($group_ids)]) : [];
+		if ($group_roles) {
 			$collisions[] = 'Managed ACL groups must not carry application roles.';
 		}
+		$safe_group_ids = $group_ids;
+		foreach ($groups as $group) {
+			if ($group['for_public_use']) { unset($safe_group_ids[(int)$group['group_id']]); }
+		}
+		foreach ($group_roles as $role) { unset($safe_group_ids[(int)$role['group_id']]); }
 		$actual_memberships = [];
 		foreach ($this->rows('SELECT relation_id, user_id, group_id FROM ca_users_x_groups') as $row) {
 			if (isset($group_ids[(int)$row['group_id']])) { $actual_memberships[(int)$row['relation_id']] = $row; }
@@ -97,7 +103,8 @@ class CollectionAclSynchronizer {
 		$table_nums = [];
 		foreach (CollectionAclPolicy::TABLES as $table) { $table_nums[Datamodel::getTableNum($table)] = $table; }
 		$acl = $this->rows('SELECT * FROM ca_acl WHERE table_num IN (?)', [array_keys($table_nums)]);
-		$actual = $remove = $creator = [];
+		$expected = CollectionAclPolicy::grantKeys($projection);
+		$actual = $remove = $creator = $retag = $marker_candidates = [];
 		foreach ($acl as $row) {
 			$table = $table_nums[(int)$row['table_num']];
 			$id = (int)$row['acl_id'];
@@ -108,6 +115,16 @@ class CollectionAclSynchronizer {
 				if (!$code || $user_id || (int)$row['access'] !== 3 || $row['inherited_from_table_num'] !== null || isset($actual[$key])) {
 					$remove[] = $id;
 				} else { $actual[$key] = $id; }
+				continue;
+			}
+			// Providence's SetAccess replaces group ACL rows without copying notes.
+			// Recover ownership only when the direct grant already exactly matches
+			// this projection and belongs to one of our private, role-less groups.
+			$code = $safe_group_ids[(int)$row['group_id']] ?? null;
+			$key = $table.':'.$row['row_id'].':'.$code;
+			if ($code && isset($expected[$key]) && $row['notes'] === '' && $row['user_id'] === null
+				&& (int)$row['access'] === 3 && $row['inherited_from_table_num'] === null && $row['inherited_from_row_id'] === null) {
+				$marker_candidates[$key][] = $id;
 				continue;
 			}
 			// Replace only native creator grants inserted by this very request.
@@ -122,7 +139,14 @@ class CollectionAclSynchronizer {
 				$collisions[] = 'An unmanaged item ACL conflicts with collection segmentation.';
 			}
 		}
-		$expected = CollectionAclPolicy::grantKeys($projection);
+		foreach ($marker_candidates as $key => $ids) {
+			if (count($ids) !== 1 || isset($actual[$key])) {
+				$collisions[] = 'An unmanaged item ACL conflicts with collection segmentation.';
+			} else {
+				$actual[$key] = $ids[0];
+				$retag[$ids[0]] = $key;
+			}
+		}
 		$insert = array_keys(array_diff_key($expected, $actual));
 		foreach (array_diff_key($actual, $expected) as $id) { $remove[] = $id; }
 		$want_memberships = [];
@@ -137,18 +161,25 @@ class CollectionAclSynchronizer {
 		}
 		$add_memberships = array_keys(array_diff_key($want_memberships, $have_memberships));
 		$create_groups = array_diff_key($projection['groups'], $groups);
-		$summary = ['groups_to_create' => count($create_groups), 'acl_to_insert' => count($insert),
+		$summary = ['groups_to_create' => count($create_groups), 'acl_to_insert' => count($insert), 'acl_to_retag' => count($retag),
 			'acl_to_remove' => count($remove) + count($creator), 'memberships_to_add' => count($add_memberships),
 			'memberships_to_remove' => count($remove_memberships), 'inheritance_rows_to_update' => array_sum(array_map('count', $flags)),
 			'conflicts' => count($collisions)];
 		return compact('projection', 'scopes', 'groups', 'group_ids', 'acl', 'flags', 'actual_memberships', 'insert', 'remove',
-			'creator', 'add_memberships', 'remove_memberships', 'create_groups', 'summary', 'collisions');
+			'creator', 'retag', 'add_memberships', 'remove_memberships', 'create_groups', 'summary', 'collisions');
 	}
 
 	public static function needsChanges(array $plan) : bool {
 		$summary = $plan['summary'];
 		unset($summary['conflicts']);
 		return array_sum($summary) > 0;
+	}
+
+	public static function hasOnlyMarkerRepairs(array $plan) : bool {
+		$summary = $plan['summary'];
+		if ($plan['collisions'] || empty($summary['acl_to_retag'])) { return false; }
+		unset($summary['acl_to_retag'], $summary['conflicts']);
+		return array_sum($summary) === 0;
 	}
 
 	/** Called inside the model's insert transaction, before it is committed. */
@@ -181,12 +212,24 @@ class CollectionAclSynchronizer {
 
 	/** Caller must explicitly authorize apply; preview never calls this method. */
 	public function apply(array $plan, ?string $backup_dir=null, bool $automatic=false) : void {
+		$this->synchronize($backup_dir, $automatic, false);
+	}
+
+	/** Startup may restore ownership metadata, never permissions or memberships. */
+	public function repairOwnershipMarkers() : void {
+		$this->synchronize(null, true, true);
+	}
+
+	private function synchronize(?string $backup_dir, bool $automatic, bool $markers_only) : void {
 		// Serialize our writers and re-read under the lock: previews and other
 		// requests can have changed since the caller inspected the catalogue.
 		$lock = $this->query("SELECT GET_LOCK(?, 10) AS acquired", ['groupCollectionRootMap.acl']);
 		if (!$lock->nextRow() || (int)$lock->get('acquired') !== 1) { throw new RuntimeException('Another collection ACL synchronization is running.'); }
 		try {
 			$plan = $this->inspect();
+			if ($markers_only && self::needsChanges($plan) && !self::hasOnlyMarkerRepairs($plan)) {
+				throw new RuntimeException('Collection permissions need synchronization; ownership-only repair cannot change access.');
+			}
 			if ($automatic && !isset($plan['groups'][CollectionAclPolicy::ALL_GROUP])) {
 				throw new RuntimeException('Initialize collection permissions with a backed-up CLI apply.');
 			}
@@ -219,6 +262,12 @@ class CollectionAclSynchronizer {
 			}
 			$delete = array_merge($plan['remove'], $plan['creator']);
 			if ($delete) { $this->query('DELETE FROM ca_acl WHERE acl_id IN (?)', [$delete]); }
+			foreach ($plan['retag'] as $id => $key) {
+				[$table, $row_id, $code] = explode(':', $key);
+				$this->query('UPDATE ca_acl SET notes = ? WHERE acl_id = ? AND table_num = ? AND row_id = ? AND group_id = ?'
+					.' AND notes = ? AND user_id IS NULL AND access = 3 AND inherited_from_table_num IS NULL AND inherited_from_row_id IS NULL',
+					[CollectionAclPolicy::OWNER, $id, Datamodel::getTableNum($table), (int)$row_id, $groups[$code]['group_id'], '']);
+			}
 			foreach (array_chunk($plan['insert'], 500) as $chunk) {
 				$values = $params = [];
 				foreach ($chunk as $key) {
@@ -246,7 +295,7 @@ class CollectionAclSynchronizer {
 			$transaction->commit();
 			if ($this->db->numErrors()) { throw new RuntimeException('Could not commit ACL transaction.'); }
 		} catch (Throwable $error) { $transaction->rollback(); throw $error; }
-		self::invalidateCaches();
+		if (!self::hasOnlyMarkerRepairs($plan)) { self::invalidateCaches(); }
 	}
 
 	private function writeBackup(array $plan, ?string $directory) : void {
