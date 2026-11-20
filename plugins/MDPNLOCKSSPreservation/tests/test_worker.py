@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import tempfile
@@ -104,6 +105,51 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(snapshot["records"], self.snapshot["records"])
         self.assertNotIn("source_path", json.dumps(snapshot))
         self.assertFalse((output / "staging").exists())
+
+    def test_archive_entries_are_readable_without_changing_private_local_permissions(self):
+        previous_umask = os.umask(0o077)
+        try:
+            self.snapshot["files"] = [self.original("1", b"uploaded original")]
+            source = Path(self.snapshot["files"][0]["source_path"])
+            source_mode = source.stat().st_mode & 0o777
+            full, output = self.build()
+            archive = self.archives(full, output)[0]
+            self.assertEqual(output.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(source.stat().st_mode & 0o777, source_mode)
+            self.assertEqual(source_mode, 0o600)
+            with tarfile.open(archive) as tar:
+                members = tar.getmembers()
+                self.assertTrue(any(member.isdir() for member in members))
+                self.assertTrue(any("/data/originals/" in member.name for member in members))
+                for member in members:
+                    self.assertEqual(member.mode, 0o755 if member.isdir() else 0o644, member.name)
+            self.assert_independently_valid(archive)
+        finally:
+            os.umask(previous_umask)
+
+    @unittest.skipUnless(hasattr(tarfile, "data_filter"), "MDPN extraction requires Python's tar data filter")
+    def test_mdpn_tag_extraction_preserves_readable_file_modes(self):
+        full, output = self.build()
+        archive = self.archives(full, output)[0]
+        bag_id = full["parts"][0]["bag_id"]
+        for ingest_umask in (0o022, 0o077):
+            with self.subTest(ingest_umask=oct(ingest_umask)):
+                destination = self.root / ("ingest-" + oct(ingest_umask))
+                destination.mkdir()
+                previous_umask = os.umask(ingest_umask)
+                try:
+                    with tarfile.open(archive) as tar:
+                        # MDPN extracts these individual members, rather than
+                        # extracting the bag's explicit root-directory member.
+                        for tag in ("bag-info.txt", "manifest-sha256.txt"):
+                            member = tar.getmember(bag_id + "/" + tag)
+                            tar.extract(member, path=destination, filter="data")
+                            self.assertEqual((destination / bag_id / tag).stat().st_mode & 0o777, 0o644)
+                    self.assertEqual((destination / bag_id).stat().st_mode & 0o777, 0o777 & ~ingest_umask)
+                    self.assertEqual((destination / bag_id / "bag-info.txt").read_text(), full["bag_info"][bag_id])
+                finally:
+                    os.umask(previous_umask)
 
     def test_large_recovery_snapshot_is_not_subject_to_the_tag_read_limit(self):
         self.snapshot["schema"]["synthetic_recovery_context"] = "x" * 16384

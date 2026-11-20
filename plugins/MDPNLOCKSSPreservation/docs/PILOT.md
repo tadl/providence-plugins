@@ -47,6 +47,11 @@ then arrange a receiving-service pilot with the preservation coordinator.
   in the snapshot. Simulate an outage or invalid update: new work must stop,
   the previous cache must remain intact, reports must stay read-only and
   retained-package retries must not fetch or repackage anything.
+- Inspect tar permissions and reproduce the receiver's selected-file extraction:
+  `bag-info.txt`, manifests and other file entries must be `0644`, with explicit
+  directories `0755`. Local archives and working storage must remain private.
+  Verify the receiving web server can traverse the AU directory and read its
+  published metadata; directory creation remains subject to the receiver's umask.
 - Change labels, attributes, hierarchy, relation type/rank/attributes and files;
   remove a member; create supplements. Inspect the complete change inventory.
 - Run a scan on unchanged content and verify no changes; request a new full

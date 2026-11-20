@@ -24,7 +24,7 @@ import tempfile
 
 
 FORMAT = "mdpn-ca-preservation-1"
-SOFTWARE = "MDPNLOCKSSPreservation/0.1.12"
+SOFTWARE = "MDPNLOCKSSPreservation/0.1.13"
 TAG_READ_LIMIT = 512 * 1024 * 1024
 
 
@@ -112,7 +112,9 @@ def tar_member(name, size=0, directory=False):
     member = tarfile.TarInfo(name)
     member.size = size
     member.type = tarfile.DIRTYPE if directory else tarfile.REGTYPE
-    member.mode = 0o700 if directory else 0o600
+    # These are receiving-side permissions after extraction, not the private
+    # filesystem modes of Providence's source files or local tar archives.
+    member.mode = 0o755 if directory else 0o644
     member.uid, member.gid = os.getuid(), os.getgid()
     return member
 

@@ -99,6 +99,26 @@ can include vocabulary and configuration entries unused by this particular
 collection. The JSON and XML provide complementary restoration information.
 See the [recovery format](docs/RECOVERY.md) for the detailed structure.
 
+### Archive permissions and ingest
+
+Files inside newly created tar archives have permission mode `0644`; explicit
+directory entries have mode `0755`. This lets a receiving service publish
+extracted bag metadata for LOCKSS crawlers running under another account.
+These are tar-header permissions: the local working directories remain private
+(`0700`), tar files remain private (`0600`), and uploaded originals are not chmodded.
+
+[MDPN preprocessing](https://github.com/MiDPN/preprocess/blob/main/preprocess.py)
+extracts `bag-info.txt` and the payload manifest using Python's tar `data` filter,
+which retains the file's read permissions from the archive. Existing packages
+created with `0600` entries need the receiving administrator to correct the
+extracted file's permissions; upgrading the plugin does not rewrite an old bag.
+
+The receiver still controls the containing directories, ownership, ACLs and
+web-server access. MDPN extracts selected files rather than the archive's root
+directory entry, so its process umask determines the directory it creates.
+The published AU directory needs to be traversable by the web server, normally
+mode `0755`; `bag-info.txt` needs to be readable, normally mode `0644`.
+
 ## Creating and confirming a deposit
 
 Only the top-level archival collection in each branch can be preserved. Its
